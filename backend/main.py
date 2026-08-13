@@ -1,10 +1,12 @@
+
+from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.data.database import engine, Base
-from app.api.chat import chat
-from app.models.models import User, ChatSession, ChatMessage, Appointment, LocalClinic  # Imports models so they register on creation
+from app.api import chat
+from app.models.models import User, ChatSession, ChatMessage, Appointment, LocalClinic
 
-# Create database tables automatically on startup
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Dental AI Chatbot API", version="2.0")

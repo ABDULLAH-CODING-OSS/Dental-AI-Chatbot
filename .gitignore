@@ -18,3 +18,7 @@ out/
 # OS Files
 .DS_Store
 Thumbs.db
+# Ignore generated RAG dataset and local database
+rag_docs/
+*.txt
+chroma_db/

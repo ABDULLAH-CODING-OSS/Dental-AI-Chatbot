@@ -15,13 +15,13 @@ export default function Home() {
 
     try {
       const response = await axios.post(
-        "http://127.0.0.1:8000/chat",
+        "http://127.0.0.1:8000/api/chat/",
         {
           message: message,
         }
       );
 
-      setReply(response.data.reply);
+      setReply(response.data.answer);
     } catch (error) {
       console.error(error);
       setReply("Something went wrong.");
