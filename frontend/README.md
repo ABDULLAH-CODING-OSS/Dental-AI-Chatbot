@@ -55,3 +55,69 @@ Dental-AI-Chatbot/
 │   ├── process_medlineplus.py# XML parsing and chunking script
 │   └── mplus_topics.xml      # Raw medical data source
 └── requirements.txt          # Root Python dependencies
+
+## ⚙️ Getting Started
+Prerequisites
+Node.js (v18 or higher)
+
+Python (v3.10 or higher)
+
+Git
+
+1. Clone the Repository
+git clone [https://github.com/your-username/Dental-AI-Chatbot.git](https://github.com/your-username/Dental-AI-Chatbot.git)
+cd Dental-AI-Chatbot
+2. Backend Setup (FastAPI + ChromaDB)
+Set up your Python virtual environment and initialize the vector database.
+
+Bash
+# Navigate to the backend directory (or stay in root if your venv is at root)
+python -m venv venv
+
+# Activate the virtual environment
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies from the root directory
+pip install -r requirements.txt
+
+# Navigate to backend and process the MedlinePlus data to build the ChromaDB vector store
+cd backend
+python process_medlineplus.py
+
+# Start the FastAPI server
+uvicorn main:app --reload --port 8000
+
+The API server will run at http://localhost:8000. You can view the Swagger UI documentation at http://localhost:8000/docs.
+
+3. Frontend Setup (Next.js)
+Open a new terminal window and set up the web application.
+
+Bash
+# Navigate to the frontend directory
+cd frontend
+
+# Install Node modules
+npm install
+
+# Start the development server
+npm run dev
+The web application will run at http://localhost:3000.
+
+🔐 Environment Variables
+You will need to configure environment variables for both the frontend and backend.
+
+Backend (backend/.env):
+
+Code snippet
+OPENAI_API_KEY=your_openai_api_key_here
+Frontend (frontend/.env.local):
+
+Code snippet
+NEXT_PUBLIC_API_URL=http://localhost:8000
+🛡️ Version Control Notes
+To prevent repository bloat, the generated RAG artifacts (rag_docs/*.txt) and the local vector database directory (chroma_db/) are explicitly excluded from version control via .gitignore. You must run the process_medlineplus.py script locally after cloning to regenerate the required database.
+
+Built with ❤️ for better dental health.
