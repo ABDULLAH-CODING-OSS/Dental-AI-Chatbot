@@ -4,6 +4,7 @@ from pydantic import BaseModel, EmailStr
 from app.data.database import get_db
 from app.models.models import User
 from app.core.security import hash_password, verify_password, create_access_token
+from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
@@ -66,3 +67,14 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     token = create_access_token({"sub": str(user.id), "role": user.role})
     full_name = getattr(user, "full_name", user.email.split("@")[0])
     return AuthResponse(access_token=token, role=user.role, full_name=full_name)
+@router.get("/me", response_model=AuthResponse)
+def get_current_user_data(current_user: User = Depends(get_current_user)):
+    full_name = getattr(current_user, "full_name", current_user.email.split("@")[0])
+    # Note: If your AuthResponse expects just an access token, you can also return a custom UserProfile schema.
+    # To keep it simple, we can return a dedicated response or include user details:
+    return {
+        "access_token": "", # optional for /me, or you can create a separate UserProfile schema
+        "role": current_user.role,
+        "full_name": full_name,
+        "email": current_user.email
+    }

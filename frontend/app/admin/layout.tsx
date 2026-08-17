@@ -2,7 +2,7 @@
 
 import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth } from "@/app/context/AuthContext";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 
@@ -12,21 +12,19 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { user, isLoading } = useAuth();
+  const { token, role, isLoading } = useAuth();
 
-  // TEMPORARY: mock role check using in-memory context. Replace with real JWT-based auth check in Phase 5b once backend auth endpoints exist.
   useEffect(() => {
     if (!isLoading) {
-      if (!user) {
+      if (!token) {
         router.push("/login");
-      } else if (user.role !== "admin") {
-        // If patient tries to access /admin/*, redirect to /dashboard
+      } else if (role !== "admin") {
         router.push("/dashboard");
       }
     }
-  }, [user, isLoading, router]);
+  }, [token, role, isLoading, router]);
 
-  if (isLoading || !user || user.role !== "admin") {
+  if (isLoading || !token || role !== "admin") {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-100/80" suppressHydrationWarning>
         <div className="flex flex-col items-center gap-3">

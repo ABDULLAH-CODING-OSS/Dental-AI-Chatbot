@@ -61,24 +61,51 @@ def query_rag(query_text: str) -> str:
 
 
 SYSTEM_PROMPT = (
-    "You are a helpful dental health assistant. Answer the user's question "
-    "using ONLY the provided context below. If the context doesn't contain "
-    "enough information to answer, say so honestly and recommend they see a "
-    "dentist rather than guessing. Do not provide specific diagnoses — offer "
-    "general education and encourage professional consultation for anything "
-    "that sounds urgent or clinical."
+    "You are Denova, a dental health AI assistant. You ONLY discuss dental, oral, and jaw health topics — "
+    "if the context or question is unrelated to dental health, say so clearly and redirect to dental topics.\n\n"
+    "Answer using ONLY the provided context. Structure every substantive answer with:\n"
+    "1. A brief, clear direct answer.\n"
+    "2. Practical prevention or self-care tips if relevant.\n"
+    "3. A clear note on when to see a dentist urgently (e.g. severe pain, swelling, bleeding, trauma) if the "
+    "symptoms described could be an emergency — be specific about red-flag symptoms, not just a generic disclaimer.\n\n"
+    "If the user describes something that sounds like it needs a dentist visit, end your response by encouraging "
+    "them to book an appointment through the app.\n\n"
+    "If the context doesn't contain enough information, say so honestly rather than guessing. Do not diagnose — "
+    "offer general education and always recommend professional consultation for anything clinical or urgent."
+    "Format your responses in clean Markdown only. Never use raw HTML tags like <br> — use standard "
+    "Markdown line breaks and formatting instead."
 )
 
+# def generate_answer(query_text: str, context: str) -> str:
+#     user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
 
-def generate_answer(query_text: str, context: str) -> str:
+#     response = groq_client.chat.completions.create(
+#         model="openai/gpt-oss-20b",
+#         max_tokens=500,
+#         messages=[
+#             {"role": "system", "content": SYSTEM_PROMPT},
+#             {"role": "user", "content": user_prompt},
+#         ],
+#     )
+#     return response.choices[0].message.content
+#_______________________________________________________________________________________________________________________________________________________________________________________________________
+def generate_answer(query_text: str, context: str, chat_history: list = None) -> str:
     user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
+    
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    
+    # Append past chat history for conversational memory
+    if chat_history:
+        for msg in chat_history:
+            # msg is expected to have 'sender' ('user'/'assistant') and 'content'
+            role = "user" if msg.sender == "user" else "assistant"
+            messages.append({"role": role, "content": msg.content})
+            
+    messages.append({"role": "user", "content": user_prompt})
 
     response = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        max_tokens=500,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
+        model="openai/gpt-oss-20b", # or your configured model name
+        max_tokens=1500,
+        messages=messages,
     )
     return response.choices[0].message.content

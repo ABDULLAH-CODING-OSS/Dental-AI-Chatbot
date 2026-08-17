@@ -3,13 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, Search, ShieldCheck, LogOut, Settings as SettingsIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -25,13 +23,14 @@ export function Topbar() {
   };
 
   return (
-    <header className="flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-6 backdrop-blur-md sticky top-0 z-20 font-sans">
+    <header className="flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-6 backdrop-blur-md sticky top-0 z-20 font-sans" suppressHydrationWarning>
       <div className="flex items-center gap-4 flex-1">
         <div className="relative w-full max-w-sm hidden sm:block">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             placeholder="Search symptoms, treatments, or clinics..."
+            suppressHydrationWarning
             className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
           />
         </div>
@@ -58,7 +57,7 @@ export function Topbar() {
         {/* User Profile Dropdown Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2.5 p-1 pl-2 pr-1 rounded-2xl hover:bg-slate-50 transition-colors cursor-pointer outline-none">
+            <button suppressHydrationWarning className="flex items-center gap-2.5 p-1 pl-2 pr-1 rounded-2xl hover:bg-slate-50 transition-colors cursor-pointer outline-none">
               <div className="hidden md:flex flex-col text-right">
                 <span className="text-sm font-bold text-slate-800 leading-tight">{user?.name || "John Doe"}</span>
                 <span className="text-xs text-slate-500 font-medium capitalize">{user?.role || "Patient"}</span>
@@ -70,7 +69,7 @@ export function Topbar() {
               </Avatar>
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 p-1.5 shadow-xl border border-slate-200 rounded-2xl">
+          <DropdownMenuContent align="end" className="w-56 p-1.5 shadow-xl border border-slate-200 rounded-2xl" suppressHydrationWarning>
             <div className="px-3 py-2">
               <p className="text-sm font-bold text-slate-900">{user?.name || "John Doe"}</p>
               <p className="text-xs text-slate-500">{user?.email || "john@example.com"}</p>
