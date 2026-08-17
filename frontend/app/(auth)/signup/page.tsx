@@ -24,7 +24,7 @@ const itemVariants = {
   visible: { 
     opacity: 1, 
     y: 0, 
-    transition: { type: "spring", stiffness: 300, damping: 24 } 
+    transition: { type: "spring" as const, stiffness: 300, damping: 24 } 
   }
 };
 
@@ -166,7 +166,7 @@ export default function SignupPage() {
         <motion.div 
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 1, delay: 0.3, type: "spring", stiffness: 200, damping: 20 }}
+          transition={{ duration: 1, delay: 0.3, type: "spring" as const, stiffness: 200, damping: 20 }}
           className="relative z-10 flex flex-col p-10 md:p-14 bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl shadow-2xl max-w-xl w-full"
         >
           <div className="mb-8 inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white/10 border border-white/20 shadow-inner">

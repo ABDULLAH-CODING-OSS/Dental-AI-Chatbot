@@ -1,0 +1,68 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr
+from app.data.database import get_db
+from app.models.models import User
+from app.core.security import hash_password, verify_password, create_access_token
+
+router = APIRouter(prefix="/api/auth", tags=["Auth"])
+
+
+class SignupRequest(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+    admin_login: bool = False  # frontend "Login as Admin" checkbox — NOT trusted alone
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    full_name: str
+
+
+@router.post("/signup", response_model=AuthResponse)
+def signup(request: SignupRequest, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == request.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+
+    user = User(
+        email=request.email,
+        hashed_password=hash_password(request.password),
+        role="patient",  # signup always creates patients; admins are provisioned separately
+    )
+    # If your User model has a full_name column, set it here — adjust if the column name differs
+    if hasattr(user, "full_name"):
+        user.full_name = request.full_name
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token({"sub": str(user.id), "role": user.role})
+    return AuthResponse(access_token=token, role=user.role, full_name=request.full_name)
+
+
+@router.post("/login", response_model=AuthResponse)
+def login(request: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == request.email).first()
+
+    if user is None or not verify_password(request.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+
+    # Key security check: the "Login as Admin" checkbox is a UI hint only.
+    # We independently verify the account's real role in the database.
+    # A patient checking this box does NOT get admin access.
+    if request.admin_login and user.role != "admin":
+        raise HTTPException(status_code=403, detail="This account does not have admin access.")
+
+    token = create_access_token({"sub": str(user.id), "role": user.role})
+    full_name = getattr(user, "full_name", user.email.split("@")[0])
+    return AuthResponse(access_token=token, role=user.role, full_name=full_name)

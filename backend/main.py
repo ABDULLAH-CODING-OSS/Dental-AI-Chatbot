@@ -4,7 +4,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.data.database import engine, Base
-from app.api import chat
+from app.api import chat, auth, appointments
 from app.models.models import User, ChatSession, ChatMessage, Appointment, LocalClinic
 
 Base.metadata.create_all(bind=engine)
@@ -19,7 +19,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
+
 app.include_router(chat.router)
+app.include_router(appointments.router)
 
 @app.get("/")
 def read_root():

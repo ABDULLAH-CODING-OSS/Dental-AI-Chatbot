@@ -55,22 +55,24 @@ Dental-AI-Chatbot/
 │   ├── process_medlineplus.py# XML parsing and chunking script
 │   └── mplus_topics.xml      # Raw medical data source
 └── requirements.txt          # Root Python dependencies
+```
+
 
 ## ⚙️ Getting Started
-Prerequisites
-Node.js (v18 or higher)
+** Prerequisites **
+* Node.js (v18 or higher)
 
-Python (v3.10 or higher)
+* Python (v3.10 or higher)
 
 Git
 
-1. Clone the Repository
-git clone [https://github.com/your-username/Dental-AI-Chatbot.git](https://github.com/your-username/Dental-AI-Chatbot.git)
-cd Dental-AI-Chatbot
-2. Backend Setup (FastAPI + ChromaDB)
-Set up your Python virtual environment and initialize the vector database.
+** 1. Clone the Repository **
+* git clone [https://github.com/your-username/Dental-AI-Chatbot.git](https://github.com/your-username/Dental-AI-Chatbot.git)
+* cd Dental-AI-Chatbot
+** 2. Backend Setup (FastAPI + ChromaDB) **
+* Set up your Python virtual environment and initialize the vector database.
 
-Bash
+** Bash **
 # Navigate to the backend directory (or stay in root if your venv is at root)
 python -m venv venv
 
@@ -93,18 +95,18 @@ uvicorn main:app --reload --port 8000
 The API server will run at http://localhost:8000. You can view the Swagger UI documentation at http://localhost:8000/docs.
 
 3. Frontend Setup (Next.js)
-Open a new terminal window and set up the web application.
+*  Open a new terminal window and set up the web application.
 
-Bash
+*  Bash
 # Navigate to the frontend directory
-cd frontend
+*  cd frontend
 
 # Install Node modules
-npm install
+*  npm install
 
 # Start the development server
-npm run dev
-The web application will run at http://localhost:3000.
+* npm run dev
+* The web application will run at http://localhost:3000.
 
 🔐 Environment Variables
 You will need to configure environment variables for both the frontend and backend.

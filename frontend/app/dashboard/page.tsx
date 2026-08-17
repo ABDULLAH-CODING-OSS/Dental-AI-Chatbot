@@ -2,28 +2,32 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Stethoscope, Send, AlertCircle, FileText, ChevronRight } from "lucide-react";
+import { Stethoscope, Send, AlertCircle, FileText, ChevronDown, ChevronUp, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import axios from "axios";
+
+const BACKEND_CHAT_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || "http://127.0.0.1:8000/api/chat/";
 
 type Message = {
   id: string;
   role: "user" | "ai";
   content: string;
-  sources?: { title: string; url: string }[];
+  sources?: string[];
   isError?: boolean;
 };
 
-export default function ChatPage() {
+export default function DashboardChatPage() {
   const [messages, setMessages] = useState<Message[]>([
     {
-      id: "1",
+      id: "initial_welcome",
       role: "ai",
       content: "Hello! I'm Denova, your AI dental assistant. How can I help you with your smile today?",
     }
   ]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -34,37 +38,68 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  const handleSend = () => {
-    if (!input.trim() || isTyping) return;
+  const toggleSources = (msgId: string) => {
+    setExpandedSources(prev => ({
+      ...prev,
+      [msgId]: !prev[msgId]
+    }));
+  };
+
+  const handleSend = async () => {
+    const trimmedInput = input.trim();
+    if (!trimmedInput || isTyping) return;
     
-    const userMsg: Message = { id: Date.now().toString(), role: "user", content: input.trim() };
+    const userMsg: Message = { 
+      id: `user_${Date.now()}`, 
+      role: "user", 
+      content: trimmedInput 
+    };
+    
     setMessages(prev => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
 
-    // Simulate API delay and response
-    setTimeout(() => {
-      // Occasional fake error for demonstration (1 in 5 chance)
-      if (Math.random() > 0.8) {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          role: "ai",
-          content: "Something went wrong, please try again.",
-          isError: true
-        }]);
-      } else {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          role: "ai",
-          content: "Based on the symptoms you described, it's possible you're experiencing dentin hypersensitivity. This occurs when the protective enamel wears down, exposing the underlying dentin. \n\nI recommend using a desensitizing toothpaste and scheduling a check-up if the pain persists for more than a few days.",
-          sources: [
-            { title: "ADA Guidelines on Hypersensitivity", url: "#" },
-            { title: "Enamel Erosion Study 2024", url: "#" }
-          ]
-        }]);
+    try {
+      const response = await axios.post(BACKEND_CHAT_URL, {
+        message: trimmedInput
+      }, {
+        headers: {
+          "Content-Type": "application/json"
+        },
+        timeout: 30000
+      });
+
+      const { answer, context } = response.data || {};
+
+      // Parse context chunks if available
+      let sourceChunks: string[] = [];
+      if (context && typeof context === "string") {
+        sourceChunks = context
+          .split(/\n\s*\n/)
+          .map(chunk => chunk.trim())
+          .filter(chunk => chunk.length > 0);
       }
+
+      const aiMsg: Message = {
+        id: `ai_${Date.now()}`,
+        role: "ai",
+        content: answer || "I received your query but no answer was provided.",
+        sources: sourceChunks.length > 0 ? sourceChunks : undefined
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+    } catch {
+      // Clean user-facing error bubble on failure
+      const errorMsg: Message = {
+        id: `err_${Date.now()}`,
+        role: "ai",
+        content: "Something went wrong, please try again.",
+        isError: true
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
       setIsTyping(false);
-    }, 2500);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -75,7 +110,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex flex-col h-full relative bg-slate-50">
+    <div className="flex flex-col h-full relative bg-slate-50 font-sans">
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto pb-48 scroll-smooth">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-8 flex flex-col gap-8">
@@ -94,7 +129,7 @@ export default function ChatPage() {
                   </div>
                 )}
                 
-                <div className={`flex flex-col gap-3 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                <div className={`flex flex-col gap-3.5 ${msg.role === "user" ? "items-end" : "items-start"}`}>
                   {/* Bubble */}
                   <div className={`
                     p-5 rounded-3xl text-base leading-relaxed shadow-sm font-medium
@@ -105,20 +140,44 @@ export default function ChatPage() {
                         : "bg-white border border-slate-100 text-slate-800 rounded-tl-sm"
                     }
                   `}>
-                    {msg.isError && <AlertCircle size={20} className="shrink-0" />}
+                    {msg.isError && <AlertCircle size={20} className="shrink-0 text-red-500" />}
                     <span className="whitespace-pre-wrap">{msg.content}</span>
                   </div>
 
-                  {/* RAG Citations */}
+                  {/* Sources Collapsible Snippets Section */}
                   {msg.sources && msg.sources.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {msg.sources.map((src, i) => (
-                        <a key={i} href={src.url} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 rounded-xl text-xs font-semibold text-slate-600 hover:text-emerald-700 transition-colors shadow-sm group cursor-pointer">
-                          <FileText size={12} className="text-slate-400 group-hover:text-emerald-500" />
-                          {src.title}
-                          <ChevronRight size={12} className="text-slate-400 group-hover:text-emerald-500 opacity-0 -ml-1 group-hover:opacity-100 group-hover:ml-0 transition-all" />
-                        </a>
-                      ))}
+                    <div className="w-full max-w-xl space-y-2 mt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleSources(msg.id)}
+                        className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 text-xs font-semibold text-slate-600 hover:text-emerald-700 transition-colors shadow-2xs cursor-pointer select-none"
+                      >
+                        <BookOpen size={14} className="text-emerald-600" />
+                        <span>Sources & Clinical Evidence ({msg.sources.length})</span>
+                        {expandedSources[msg.id] ? (
+                          <ChevronUp size={14} className="text-slate-400" />
+                        ) : (
+                          <ChevronDown size={14} className="text-slate-400" />
+                        )}
+                      </button>
+
+                      {/* Expanded Snippets */}
+                      {expandedSources[msg.id] && (
+                        <div className="space-y-2 pt-1 animate-in fade-in slide-in-from-top-2 duration-200">
+                          {msg.sources.map((chunk, i) => (
+                            <div 
+                              key={i} 
+                              className="p-3.5 rounded-2xl bg-white/90 border border-slate-200 shadow-2xs text-xs text-slate-700 leading-relaxed font-medium space-y-1"
+                            >
+                              <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-800 border-b border-slate-100 pb-1">
+                                <FileText size={12} className="text-emerald-600 shrink-0" />
+                                <span>Reference Chunk #{i + 1}</span>
+                              </div>
+                              <p className="whitespace-pre-wrap text-slate-600 pt-0.5">{chunk}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
