@@ -1,4 +1,5 @@
-﻿from datetime import datetime, date
+import os
+from datetime import datetime, date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,7 +12,8 @@ from app.models.models import User, ChatSession, ChatMessage
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
-DAILY_MESSAGE_LIMIT = 25
+# Configurable daily message limit with generous default (100 messages/day)
+DAILY_MESSAGE_LIMIT = int(os.environ.get("DAILY_MESSAGE_LIMIT", "100"))
 
 class ChatRequest(BaseModel):
     message: str
@@ -43,6 +45,46 @@ class MessageResponse(BaseModel):
     class Config:
         from_attributes = True
         orm_mode = True
+
+class QuotaResponse(BaseModel):
+    messages_today: int
+    limit: int
+    remaining: int
+
+
+@router.get("/quota", response_model=QuotaResponse)
+def get_user_quota(
+    current_user: User = Depends(get_current_user),
+):
+    now_utc = datetime.utcnow()
+    today = now_utc.date()
+    last_date = current_user.last_message_date.date() if current_user.last_message_date else None
+
+    messages_today = current_user.messages_today or 0
+    if last_date != today:
+        messages_today = 0
+
+    remaining = max(0, DAILY_MESSAGE_LIMIT - messages_today)
+    return QuotaResponse(
+        messages_today=messages_today,
+        limit=DAILY_MESSAGE_LIMIT,
+        remaining=remaining
+    )
+
+
+@router.post("/reset-quota", response_model=QuotaResponse)
+def reset_user_quota(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.messages_today = 0
+    current_user.last_message_date = datetime.utcnow()
+    db.commit()
+    return QuotaResponse(
+        messages_today=0,
+        limit=DAILY_MESSAGE_LIMIT,
+        remaining=DAILY_MESSAGE_LIMIT
+    )
 
 
 @router.get("/sessions", response_model=List[ChatSessionResponse])
@@ -118,7 +160,7 @@ def send_message(
     if current_user.messages_today >= DAILY_MESSAGE_LIMIT:
         raise HTTPException(
             status_code=429,
-            detail=f"You've reached your daily limit of {DAILY_MESSAGE_LIMIT} messages. Please try again tomorrow.",
+            detail=f"You've reached your daily limit of {DAILY_MESSAGE_LIMIT} messages. Please try again tomorrow or reset your quota.",
         )
 
     current_user.messages_today += 1

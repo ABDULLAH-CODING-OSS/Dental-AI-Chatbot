@@ -12,7 +12,8 @@ import {
   AlertTriangle, 
   Copy, 
   Check,
-  RotateCcw
+  RotateCcw,
+  RefreshCw
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -35,6 +36,7 @@ interface MessageItemProps {
   onToggleSources: (id: string) => void;
   onCopy: (id: string, content: string) => void;
   onRetry?: (query: string) => void;
+  onResetQuota?: () => void;
 }
 
 /**
@@ -48,6 +50,7 @@ export const MessageItem = memo(function MessageItem({
   onToggleSources,
   onCopy,
   onRetry,
+  onResetQuota,
 }: MessageItemProps) {
   const formattedContent = useMemo(() => {
     return msg.content ? msg.content.replace(/<br\s*\/?>/gi, "\n") : "";
@@ -85,16 +88,16 @@ export const MessageItem = memo(function MessageItem({
             msg.role === "user"
               ? "bg-gradient-to-br from-emerald-600 to-teal-700 text-white rounded-tr-sm shadow-[0_4px_16px_rgb(5,150,105,0.22)]"
               : msg.isRateLimit
-              ? "bg-amber-50 text-amber-900 border border-amber-200 rounded-tl-sm flex items-start gap-3"
+              ? "bg-amber-50 text-amber-900 border border-amber-200 rounded-tl-sm flex flex-col gap-3"
               : msg.isError
               ? "bg-red-50 text-red-700 border border-red-200 rounded-tl-sm flex flex-col gap-2 font-medium"
               : "bg-white border border-slate-200/90 text-slate-800 rounded-tl-sm shadow-xs"
           }`}
         >
           {msg.isRateLimit && (
-            <div className="flex items-center gap-2 font-semibold text-amber-800 mb-1">
+            <div className="flex items-center gap-2 font-bold text-amber-800">
               <AlertTriangle size={20} className="shrink-0 text-amber-600" />
-              <span>Rate Limit Reached</span>
+              <span>Daily Consultation Limit Reached</span>
             </div>
           )}
 
@@ -110,7 +113,24 @@ export const MessageItem = memo(function MessageItem({
             <span className="whitespace-pre-wrap font-medium text-base leading-relaxed tracking-normal">
               {msg.content}
             </span>
-          ) : msg.isError || msg.isRateLimit ? (
+          ) : msg.isRateLimit ? (
+            <div className="space-y-3">
+              <p className="whitespace-pre-wrap text-base text-amber-900 font-normal leading-relaxed">{msg.content}</p>
+              {onResetQuota && (
+                <div className="pt-1 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onResetQuota}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition-all cursor-pointer shadow-sm"
+                  >
+                    <RefreshCw size={15} />
+                    <span>Reset Daily Limit</span>
+                  </button>
+                  <span className="text-xs font-medium text-amber-700">Resets message counter to 100 messages.</span>
+                </div>
+              )}
+            </div>
+          ) : msg.isError ? (
             <div className="space-y-2">
               <p className="whitespace-pre-wrap text-base">{msg.content}</p>
               {msg.retryQuery && onRetry && (
@@ -179,7 +199,7 @@ export const MessageItem = memo(function MessageItem({
         </div>
 
         {/* Action Bar: Copy Response for Assistant */}
-        {msg.role === "ai" && !msg.isError && (
+        {msg.role === "ai" && !msg.isError && !msg.isRateLimit && (
           <div className="flex items-center gap-2 px-1">
             <button
               type="button"

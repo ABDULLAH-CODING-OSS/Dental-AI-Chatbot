@@ -38,21 +38,17 @@ function DashboardChatContent() {
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Tracks the session ID that is currently loaded in state to avoid redundant re-fetches and flickering
   const currentLoadedSessionRef = useRef<string | null>(sessionQuery);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Immediate authentication guard
   useEffect(() => {
     if (!authLoading && !token) {
       router.push("/login");
     }
   }, [token, authLoading, router]);
 
-  // Load session messages when user switches session from sidebar or history
   useEffect(() => {
-    // If the sessionQuery is already what is loaded in state, do not re-fetch (prevents flicker on new query)
     if (sessionQuery === currentLoadedSessionRef.current) {
       return;
     }
@@ -84,7 +80,6 @@ function DashboardChatContent() {
             timestamp: m.timestamp,
           }));
 
-          // Always ensure the Welcome Message persists as the first message
           setMessages([WELCOME_MESSAGE, ...loaded]);
           
           setTimeout(() => {
@@ -134,6 +129,19 @@ function DashboardChatContent() {
     }
   }, []);
 
+  const handleResetQuota = useCallback(async () => {
+    if (!token) return;
+    try {
+      await axios.post(`${BACKEND_BASE_URL}/api/chat/reset-quota`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Remove any rate limit error bubbles from current view
+      setMessages(prev => prev.filter(m => !m.isRateLimit));
+    } catch (err) {
+      console.error("Failed to reset quota:", err);
+    }
+  }, [token]);
+
   const handleSendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || isGenerating || loadingSession) return;
@@ -143,7 +151,6 @@ function DashboardChatContent() {
       return;
     }
     
-    // 1. Optimistic Update: Append user message additively
     const userMsgId = generateUniqueId("user");
     const userMsg: Message = { 
       id: userMsgId, 
@@ -154,12 +161,10 @@ function DashboardChatContent() {
     setMessages(prev => [...prev, userMsg]);
     setIsGenerating(true);
 
-    // 2. Smoothly scroll to bottom to show user query and thinking state
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 50);
 
-    // 3. API Execution
     try {
       const response = await axios.post(BACKEND_CHAT_URL, {
         message: trimmed,
@@ -174,7 +179,6 @@ function DashboardChatContent() {
 
       const { answer, context, session_id } = response.data || {};
 
-      // If a new session was created by backend, update the session ID and URL silently without re-triggering reload
       if (session_id && (!currentSessionId || currentSessionId !== session_id.toString())) {
         currentLoadedSessionRef.current = session_id.toString();
         setCurrentSessionId(session_id.toString());
@@ -189,7 +193,6 @@ function DashboardChatContent() {
         }));
       }
 
-      // Parse context chunks if available
       let sourceChunks: string[] = [];
       if (context && typeof context === "string") {
         sourceChunks = context
@@ -198,7 +201,6 @@ function DashboardChatContent() {
           .filter(chunk => chunk.length > 0);
       }
 
-      // 4. Finalize the assistant message bubble additively
       const aiMsgId = generateUniqueId("ai");
       const aiMsg: Message = {
         id: aiMsgId,
@@ -209,7 +211,6 @@ function DashboardChatContent() {
 
       setMessages(prev => [...prev, aiMsg]);
 
-      // 5. Auto-scroll anchor to the top of Denova's newly generated response
       setTimeout(() => {
         const targetElement = document.getElementById(`msg-${aiMsgId}`);
         if (targetElement) {
@@ -220,7 +221,6 @@ function DashboardChatContent() {
       }, 80);
 
     } catch (err: unknown) {
-      console.error("Chat consultation error:", err);
       let errorDetail = "Error: Could not retrieve response. Please check your connection and try again.";
       let isRateLimit = false;
 
@@ -232,7 +232,7 @@ function DashboardChatContent() {
           errorDetail = 
             (typeof err.response?.data?.detail === "string" ? err.response.data.detail : null) ||
             err.response?.data?.message ||
-            "You've reached your daily limit of messages. Please try again tomorrow.";
+            "You've reached your daily limit of messages. Please reset your quota to continue.";
         } else if (status === 401) {
           logout();
           router.push("/login");
@@ -291,6 +291,7 @@ function DashboardChatContent() {
                   onToggleSources={toggleSources}
                   onCopy={handleCopyResponse}
                   onRetry={handleRetry}
+                  onResetQuota={handleResetQuota}
                 />
               ))}
             
