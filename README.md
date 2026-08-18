@@ -59,14 +59,14 @@ Dental-AI-Chatbot/
 
 
 ## ⚙️ Getting Started
-** Prerequisites **
+# Prerequisites 
 * Node.js (v18 or higher)
 
 * Python (v3.10 or higher)
 
 Git
 
-** 1. Clone the Repository **
+## ** 1. Clone the Repository **
 * git clone [https://github.com/your-username/Dental-AI-Chatbot.git](https://github.com/your-username/Dental-AI-Chatbot.git)
 * cd Dental-AI-Chatbot
 ** 2. Backend Setup (FastAPI + ChromaDB) **
