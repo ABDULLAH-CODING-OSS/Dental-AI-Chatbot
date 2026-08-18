@@ -8,18 +8,18 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface ChatInputAreaProps {
   onSend: (message: string) => void;
-  isTyping: boolean;
+  isGenerating: boolean;
   loadingSession: boolean;
 }
 
 /**
  * Isolated Chat Input Component.
- * Managing local typing state inside this self-contained component prevents
- * keystrokes from re-rendering the entire chat history or triggering markdown parsing.
+ * Managing local typing state inside this component ensures keystrokes
+ * never re-render the message list or trigger markdown re-parsing.
  */
 export const ChatInputArea = memo(function ChatInputArea({
   onSend,
-  isTyping,
+  isGenerating,
   loadingSession,
 }: ChatInputAreaProps) {
   const [input, setInput] = useState("");
@@ -27,13 +27,13 @@ export const ChatInputArea = memo(function ChatInputArea({
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || isTyping || loadingSession) return;
+    if (!trimmed || isGenerating || loadingSession) return;
     onSend(trimmed);
     setInput("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [input, isTyping, loadingSession, onSend]);
+  }, [input, isGenerating, loadingSession, onSend]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -49,10 +49,10 @@ export const ChatInputArea = memo(function ChatInputArea({
     setInput(e.target.value);
   }, []);
 
-  const isButtonDisabled = !input.trim() || isTyping || loadingSession;
+  const isButtonDisabled = !input.trim() || isGenerating || loadingSession;
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-50 via-slate-50/95 to-transparent pt-16 pb-7 px-4 pointer-events-none">
+    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-50 via-slate-50/95 to-transparent pt-16 pb-7 px-4 pointer-events-none z-10">
       <div className="max-w-4xl mx-auto relative pointer-events-auto">
         <div className="relative bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-200 focus-within:ring-4 focus-within:ring-emerald-500/20 focus-within:border-emerald-500 transition-all duration-300 flex items-end overflow-hidden">
           <Textarea
@@ -60,9 +60,13 @@ export const ChatInputArea = memo(function ChatInputArea({
             value={input}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            placeholder="Ask Denova anything about dental symptoms, treatments, or care..."
+            placeholder={
+              isGenerating
+                ? "Denova is responding..."
+                : "Ask Denova anything about dental symptoms, treatments, or care..."
+            }
             className="min-h-[76px] max-h-[220px] border-0 focus-visible:ring-0 resize-none py-5 px-6 text-base font-medium text-slate-900 bg-transparent placeholder:text-slate-400"
-            disabled={isTyping || loadingSession}
+            disabled={isGenerating || loadingSession}
           />
           <div className="p-3 shrink-0">
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -71,7 +75,7 @@ export const ChatInputArea = memo(function ChatInputArea({
                 onClick={handleSend}
                 disabled={isButtonDisabled}
                 size="icon"
-                className="h-12 w-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                className="h-12 w-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
               >
                 <Send size={20} className={!isButtonDisabled ? "ml-0.5" : ""} />
               </Button>

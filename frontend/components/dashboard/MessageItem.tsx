@@ -11,7 +11,8 @@ import {
   BookOpen, 
   AlertTriangle, 
   Copy, 
-  Check 
+  Check,
+  RotateCcw
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -24,6 +25,7 @@ export type Message = {
   isError?: boolean;
   isRateLimit?: boolean;
   timestamp?: string;
+  retryQuery?: string;
 };
 
 interface MessageItemProps {
@@ -32,11 +34,12 @@ interface MessageItemProps {
   isCopied: boolean;
   onToggleSources: (id: string) => void;
   onCopy: (id: string, content: string) => void;
+  onRetry?: (query: string) => void;
 }
 
 /**
  * Memoized Message Item Component.
- * Prevents re-parsing markdown AST and re-rendering bubbles when sibling messages or input state changes.
+ * Stable animations and memoization prevent flickering and layout shift.
  */
 export const MessageItem = memo(function MessageItem({
   msg,
@@ -44,6 +47,7 @@ export const MessageItem = memo(function MessageItem({
   isCopied,
   onToggleSources,
   onCopy,
+  onRetry,
 }: MessageItemProps) {
   const formattedContent = useMemo(() => {
     return msg.content ? msg.content.replace(/<br\s*\/?>/gi, "\n") : "";
@@ -52,8 +56,9 @@ export const MessageItem = memo(function MessageItem({
   return (
     <motion.div
       id={`msg-${msg.id}`}
-      initial={{ opacity: 0, y: 15 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
       className={`scroll-mt-6 flex gap-4 max-w-[90%] md:max-w-[85%] ${
         msg.role === "user" ? "ml-auto flex-row-reverse" : ""
       }`}
@@ -82,15 +87,23 @@ export const MessageItem = memo(function MessageItem({
               : msg.isRateLimit
               ? "bg-amber-50 text-amber-900 border border-amber-200 rounded-tl-sm flex items-start gap-3"
               : msg.isError
-              ? "bg-red-50 text-red-700 border border-red-200 rounded-tl-sm flex items-center gap-3 font-medium"
+              ? "bg-red-50 text-red-700 border border-red-200 rounded-tl-sm flex flex-col gap-2 font-medium"
               : "bg-white border border-slate-200/90 text-slate-800 rounded-tl-sm shadow-xs"
           }`}
         >
-          {msg.isRateLimit ? (
-            <AlertTriangle size={22} className="shrink-0 text-amber-600 mt-0.5" />
-          ) : msg.isError ? (
-            <AlertCircle size={22} className="shrink-0 text-red-500" />
-          ) : null}
+          {msg.isRateLimit && (
+            <div className="flex items-center gap-2 font-semibold text-amber-800 mb-1">
+              <AlertTriangle size={20} className="shrink-0 text-amber-600" />
+              <span>Rate Limit Reached</span>
+            </div>
+          )}
+
+          {msg.isError && !msg.isRateLimit && (
+            <div className="flex items-center gap-2 font-semibold text-red-800 mb-1">
+              <AlertCircle size={20} className="shrink-0 text-red-600" />
+              <span>Response Error</span>
+            </div>
+          )}
 
           {/* Message Content */}
           {msg.role === "user" ? (
@@ -98,7 +111,19 @@ export const MessageItem = memo(function MessageItem({
               {msg.content}
             </span>
           ) : msg.isError || msg.isRateLimit ? (
-            <span className="whitespace-pre-wrap text-base">{msg.content}</span>
+            <div className="space-y-2">
+              <p className="whitespace-pre-wrap text-base">{msg.content}</p>
+              {msg.retryQuery && onRetry && (
+                <button
+                  type="button"
+                  onClick={() => onRetry(msg.retryQuery!)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-100 hover:bg-red-200 text-red-800 text-xs font-semibold transition-colors cursor-pointer mt-1"
+                >
+                  <RotateCcw size={13} />
+                  <span>Retry Question</span>
+                </button>
+              )}
+            </div>
           ) : (
             <div className="prose prose-slate max-w-none text-slate-800 text-base leading-relaxed prose-p:my-2.5 prose-p:leading-relaxed prose-p:first:mt-0 prose-p:last:mb-0 prose-strong:font-bold prose-strong:text-slate-900 prose-ul:my-2.5 prose-ul:list-disc prose-ul:pl-6 prose-ol:my-2.5 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-1 prose-headings:font-bold prose-headings:text-slate-900 prose-headings:my-3">
               <ReactMarkdown

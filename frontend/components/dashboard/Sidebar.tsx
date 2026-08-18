@@ -29,6 +29,8 @@ import {
 import { useAuth } from "@/app/context/AuthContext";
 import axios from "axios";
 
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
 interface ChatSession {
   id: number;
   title: string;
@@ -64,17 +66,17 @@ export function Sidebar() {
   const fetchSessions = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await axios.get("http://127.0.0.1:8000/api/chat/sessions", {
+      const res = await axios.get(`${BACKEND_BASE_URL}/api/chat/sessions`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
-        timeout: 8000,
+        timeout: 25000,
       });
       if (Array.isArray(res.data)) {
         setSessions(res.data.slice(0, 10));
       }
     } catch {
-      // Fallback gracefully without breaking UI if offline
+      // Fallback gracefully without breaking UI if offline or busy
     }
   }, [token]);
 
@@ -103,16 +105,15 @@ export function Sidebar() {
     setIsDeleting(true);
 
     try {
-      await axios.delete(`http://127.0.0.1:8000/api/chat/sessions/${sessionToDelete.id}`, {
+      await axios.delete(`${BACKEND_BASE_URL}/api/chat/sessions/${sessionToDelete.id}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
-        timeout: 8000,
+        timeout: 20000,
       });
 
       setSessions(prev => prev.filter(s => s.id !== sessionToDelete.id));
 
-      // If the currently active chat is the one deleted, navigate to new dashboard chat
       if (currentSessionParam === sessionToDelete.id.toString()) {
         router.push("/dashboard");
       }

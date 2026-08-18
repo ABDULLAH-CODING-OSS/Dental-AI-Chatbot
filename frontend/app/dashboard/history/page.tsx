@@ -17,6 +17,8 @@ import { useAuth } from "@/app/context/AuthContext";
 import { formatConsultationTime } from "@/lib/utils";
 import axios from "axios";
 
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
 interface HistoryItem {
   id: string;
   title: string;
@@ -54,11 +56,11 @@ export default function HistoryPage() {
       }
 
       try {
-        const res = await axios.get("http://127.0.0.1:8000/api/chat/sessions", {
+        const res = await axios.get(`${BACKEND_BASE_URL}/api/chat/sessions`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-          timeout: 10000,
+          timeout: 30000,
         });
 
         if (isMounted && Array.isArray(res.data)) {
@@ -75,8 +77,8 @@ export default function HistoryPage() {
           });
           setHistory(mapped);
         }
-      } catch {
-        // Fallback default history if server offline
+      } catch (err) {
+        console.warn("History fetch notice (using cached/fallback):", err);
         setHistory([
           { id: "1", title: "Sensitivity in lower molars", date: "Today, 10:30 AM", preview: "Clinical advice on dentin hypersensitivity and desensitizing treatment." },
           { id: "2", title: "Whitening options comparison", date: "Yesterday, 2:15 PM", preview: "Professional in-office whitening comparison and enamel safety." },
@@ -101,16 +103,15 @@ export default function HistoryPage() {
 
     try {
       if (token) {
-        await axios.delete(`http://127.0.0.1:8000/api/chat/sessions/${itemToDelete}`, {
+        await axios.delete(`${BACKEND_BASE_URL}/api/chat/sessions/${itemToDelete}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-          timeout: 8000,
+          timeout: 20000,
         });
       }
       setHistory(prev => prev.filter(h => h.id !== itemToDelete));
     } catch {
-      // Local removal fallback
       setHistory(prev => prev.filter(h => h.id !== itemToDelete));
     } finally {
       setIsDeleting(false);

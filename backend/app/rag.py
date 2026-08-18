@@ -56,13 +56,17 @@ vector_store = _initialize_or_load_db()
 def query_rag(query_text: str) -> str:
     if not query_text or not query_text.strip():
         return ""
-    results = vector_store.similarity_search(query_text, k=3)
-    return "\n\n".join([doc.page_content for doc in results])
+    try:
+        results = vector_store.similarity_search(query_text, k=3)
+        return "\n\n".join([doc.page_content for doc in results])
+    except Exception as e:
+        print(f"RAG search error: {e}")
+        return ""
 
 SYSTEM_PROMPT = (
     "You are Denova, a dental health AI assistant. You have two sources of information available to you:\n"
-    "1. RETRIEVED CONTEXT — clinical/educational content provided below each question.\n"
-    "2. CONVERSATION HISTORY — everything the user has told you earlier (name, age, symptoms, previous turns).\n\n"
+    "1. RETRIEVED CONTEXT - clinical/educational content provided below each question.\n"
+    "2. CONVERSATION HISTORY - everything the user has told you earlier (name, age, symptoms, previous turns).\n\n"
 
     "ADAPTIVE VERBOSITY & FORMATTING (CRITICAL):\n"
     "- Match response depth to the query. For simple questions (e.g., 'What is my name?'), keep it short and direct. "
@@ -72,7 +76,7 @@ SYSTEM_PROMPT = (
     "- Never output raw HTML (no <br>, <div>, etc.). Use Markdown line breaks.\n\n"
 
     "HOW TO USE SOURCES:\n"
-    "- For clinical questions: Ground your answer in the RETRIEVED CONTEXT. If missing, say so honestly — do not guess.\n"
+    "- For clinical questions: Ground your answer in the RETRIEVED CONTEXT. If missing, say so honestly - do not guess.\n"
     "- For conversational questions (name, age, past solutions, repetition): Answer directly from CONVERSATION HISTORY. "
     "These are always ON-TOPIC and should never be refused.\n"
     "- For combined questions: Use history for personal details and context for clinical information.\n\n"
@@ -85,7 +89,7 @@ SYSTEM_PROMPT = (
 
     "WHAT COUNTS AS OFF-TOPIC (politely decline):\n"
     "- Subjects with no connection to dental health or this session (e.g., coding, general history, non-dental medical advice).\n"
-    "- When declining, give a general redirect to dental topics. Do NOT name specific unrelated topics (like eye exams or RSV) "
+    "- When declining, give a general redirect to dental topics. Do NOT name specific unrelated topics "
     "unless the user specifically asked about them.\n\n"
 
     "CLINICAL GUARDRAILS:\n"
@@ -95,42 +99,35 @@ SYSTEM_PROMPT = (
 )
 
 
-# def generate_answer(query_text: str, context: str) -> str:
-#     user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
-
-#     response = groq_client.chat.completions.create(
-#         model="openai/gpt-oss-20b",
-#         max_tokens=500,
-#         messages=[
-#             {"role": "system", "content": SYSTEM_PROMPT},
-#             {"role": "user", "content": user_prompt},
-#         ],
-#     )
-#     return response.choices[0].message.content
-#_______________________________________________________________________________________________________________________________________________________________________________________________________
 def generate_answer(query_text: str, context: str, chat_history: list = None) -> str:
-    user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
-    
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    
-    # Append past chat history for conversational memory
-    if chat_history:
-        for msg in chat_history:
-            # Since chat_history contains dictionaries passed from the route:
-            # msg is expected to be a dict with keys 'role' and 'content'
-            if isinstance(msg, dict):
-                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
-            else:
-                # Fallback just in case raw SQLAlchemy models are passed directly elsewhere
-                role = "user" if getattr(msg, "sender", "user") == "user" else "assistant"
-                content = getattr(msg, "content", "")
-                messages.append({"role": role, "content": content})
-            
-    messages.append({"role": "user", "content": user_prompt})
+    try:
+        user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
+        
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        
+        # Append past chat history for conversational memory
+        if chat_history:
+            for msg in chat_history:
+                if isinstance(msg, dict):
+                    messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+                else:
+                    role = "user" if getattr(msg, "sender", "user") == "user" else "assistant"
+                    content = getattr(msg, "content", "")
+                    messages.append({"role": role, "content": content})
+                
+        messages.append({"role": "user", "content": user_prompt})
 
-    response = groq_client.chat.completions.create(
-        model="openai/gpt-oss-20b", # or your configured model name
-        max_tokens=1500,
-        messages=messages,
-    )
-    return response.choices[0].message.content
+        response = groq_client.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            max_tokens=1500,
+            messages=messages,
+        )
+        content = response.choices[0].message.content
+        if not content or not content.strip():
+            return "I processed your request, but no textual guidance was returned. Please try rephrasing your question."
+        return content
+    except Exception as e:
+        print(f"Error in generate_answer: {e}")
+        if context and len(context.strip()) > 0:
+            return f"Here is relevant clinical guidance from our dental literature:\n\n{context}"
+        return "I apologize, but I encountered a momentary connection delay with the AI service. Please try asking your question again."
