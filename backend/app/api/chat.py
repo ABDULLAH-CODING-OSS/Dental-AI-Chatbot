@@ -59,7 +59,7 @@ from app.models.models import User, ChatSession, ChatMessage
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
-DAILY_MESSAGE_LIMIT = 20
+DAILY_MESSAGE_LIMIT = 25
 
 class ChatRequest(BaseModel):
     message: str
@@ -225,8 +225,12 @@ def send_message(
         db.commit()
         db.refresh(chat_session)
 
-    # 1. Grab existing messages in this session BEFORE adding the new user message (for chat memory)
-    existing_messages = chat_session.messages if chat_session else []
+    # 1. Grab existing messages in this session and map them to role/content dicts for chat memory
+    chat_history = []
+    if chat_session and chat_session.messages:
+        for msg in chat_session.messages:
+            role = "user" if msg.sender == "user" else "assistant"
+            chat_history.append({"role": role, "content": msg.content})
 
     # 2. Save user message to database
     user_msg = ChatMessage(session_id=chat_session.id, sender="user", content=request.message)
@@ -235,7 +239,7 @@ def send_message(
 
     # 3. RAG Retrieval & Generation with Chat History/Memory passed in
     context = query_rag(request.message)
-    answer = generate_answer(request.message, context, chat_history=existing_messages)
+    answer = generate_answer(request.message, context, chat_history=chat_history)
 
     # 4. Save assistant response to database
     assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer)
