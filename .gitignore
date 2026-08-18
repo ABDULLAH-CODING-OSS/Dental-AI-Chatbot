@@ -22,3 +22,5 @@ Thumbs.db
 rag_docs/
 *.txt
 chroma_db/
+# Exception: Allow requirements.txt to be tracked
+!requirements.txt

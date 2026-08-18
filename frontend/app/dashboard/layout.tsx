@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -24,15 +24,15 @@ export default function DashboardLayout({
     return (
       <div className="flex h-screen w-full items-center justify-center bg-slate-50" suppressHydrationWarning>
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-3 border-emerald-600 border-t-transparent"></div>
-          <p className="text-sm font-medium text-slate-600">Verifying session...</p>
+          <div className="h-9 w-9 animate-spin rounded-full border-3 border-emerald-600 border-t-transparent"></div>
+          <p className="text-base font-semibold text-slate-600">Verifying session...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900 text-sm selection:bg-emerald-200 selection:text-emerald-900" suppressHydrationWarning>
+    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900 text-base selection:bg-emerald-200 selection:text-emerald-900" suppressHydrationWarning>
       <div className="hidden md:block">
         <Sidebar />
       </div>
