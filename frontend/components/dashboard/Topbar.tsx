@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, Search, ShieldCheck, LogOut, Settings as SettingsIcon } from "lucide-react";
@@ -12,10 +13,47 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth-context";
+import axios from "axios";
+
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 export function Topbar() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+
+  const fetchUnreadCount = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get(`${BACKEND_BASE_URL}/api/notifications/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 15000,
+      });
+
+      if (Array.isArray(res.data)) {
+        const unread = res.data.filter((n: { read: boolean | number }) => !n.read).length;
+        setUnreadCount(unread);
+      }
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        logout();
+        router.push("/login");
+      }
+    }
+  }, [token, logout, router]);
+
+  useEffect(() => {
+    fetchUnreadCount();
+
+    const handleNotificationsUpdated = () => {
+      fetchUnreadCount();
+    };
+
+    window.addEventListener("notifications-updated", handleNotificationsUpdated);
+    return () => {
+      window.removeEventListener("notifications-updated", handleNotificationsUpdated);
+    };
+  }, [fetchUnreadCount]);
 
   const handleLogout = () => {
     logout();
@@ -37,20 +75,21 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-3.5">
-        {/* Clean System Status badge */}
+        {/* System Status badge */}
         <div className="hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/60 text-xs font-semibold text-emerald-800">
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
           AI Assistant: Online
         </div>
 
-        {/* Clean Notification Bell with properly aligned badge */}
-        <Link href="/dashboard/notifications">
-          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors cursor-pointer">
+        {/* Real Notification Bell with Dynamic Unread Badge */}
+        <Link href="/dashboard/notifications" title="View notifications">
+          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/60 transition-colors cursor-pointer">
             <Bell size={20} />
-            <span className="absolute top-2 right-2 flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
+            {unreadCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold shadow-sm ring-2 ring-white">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
           </div>
         </Link>
 
@@ -59,20 +98,20 @@ export function Topbar() {
           <DropdownMenuTrigger asChild>
             <button suppressHydrationWarning className="flex items-center gap-2.5 p-1 pl-2 pr-1 rounded-2xl hover:bg-slate-50 transition-colors cursor-pointer outline-none">
               <div className="hidden md:flex flex-col text-right">
-                <span className="text-sm font-bold text-slate-800 leading-tight">{user?.name || "John Doe"}</span>
+                <span className="text-sm font-bold text-slate-800 leading-tight">{user?.name || "Patient"}</span>
                 <span className="text-xs text-slate-500 font-medium capitalize">{user?.role || "Patient"}</span>
               </div>
               <Avatar className="h-9 w-9 border border-emerald-200">
                 <AvatarFallback className="bg-emerald-100 text-emerald-800 font-bold text-sm">
-                  {user?.avatar || "JD"}
+                  {user?.avatar || "PT"}
                 </AvatarFallback>
               </Avatar>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 p-1.5 shadow-xl border border-slate-200 rounded-2xl" suppressHydrationWarning>
             <div className="px-3 py-2">
-              <p className="text-sm font-bold text-slate-900">{user?.name || "John Doe"}</p>
-              <p className="text-xs text-slate-500">{user?.email || "john@example.com"}</p>
+              <p className="text-sm font-bold text-slate-900">{user?.name || "Patient"}</p>
+              <p className="text-xs text-slate-500 truncate">{user?.email || "patient@denovadental.com"}</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild className="text-sm cursor-pointer rounded-xl py-2 font-medium">
@@ -82,7 +121,7 @@ export function Topbar() {
               </Link>
             </DropdownMenuItem>
 
-            {/* Subtle Admin Console link ONLY visible if the user role is admin */}
+            {/* Admin Console link ONLY visible if the user role is admin */}
             {user?.role === "admin" && (
               <DropdownMenuItem asChild className="text-sm cursor-pointer rounded-xl py-2 font-semibold text-purple-700 focus:bg-purple-50 focus:text-purple-800">
                 <Link href="/admin" className="w-full flex items-center gap-2.5">

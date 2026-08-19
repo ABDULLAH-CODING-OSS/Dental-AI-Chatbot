@@ -6,7 +6,7 @@ import { Stethoscope, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
 import { formatMarkdownToStructuredText } from "@/lib/utils";
-import { MessageItem, Message } from "@/components/dashboard/MessageItem";
+import { MessageItem, Message, BookingReceipt } from "@/components/dashboard/MessageItem";
 import { ChatInputArea } from "@/components/dashboard/ChatInputArea";
 import axios from "axios";
 
@@ -16,7 +16,7 @@ const BACKEND_CHAT_URL = `${BACKEND_BASE_URL}/api/chat/`;
 const WELCOME_MESSAGE: Message = {
   id: "initial_welcome",
   role: "ai",
-  content: "Hello! I'm Denova, your AI dental assistant. How can I help you with your oral health and smile today?",
+  content: "Hello! I'm Denova, your AI dental assistant. How can I help you with your oral health, appointments, or symptoms today?",
 };
 
 function generateUniqueId(prefix: string): string {
@@ -38,17 +38,28 @@ function DashboardChatContent() {
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Ref tracking the currently active session in memory to prevent unnecessary overwrites
   const currentLoadedSessionRef = useRef<string | null>(sessionQuery);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!authLoading && !token) {
-      router.push("/login");
+  const getAuthToken = useCallback(() => {
+    if (token) return token;
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("token");
     }
-  }, [token, authLoading, router]);
+    return null;
+  }, [token]);
 
   useEffect(() => {
+    if (!authLoading && !getAuthToken()) {
+      router.push("/login");
+    }
+  }, [getAuthToken, authLoading, router]);
+
+  // Load session messages ONLY when sessionQuery is for a DIFFERENT session than currently loaded
+  useEffect(() => {
+    // If the active memory session is already matching the URL query, do not reload or wipe state
     if (sessionQuery === currentLoadedSessionRef.current) {
       return;
     }
@@ -56,10 +67,14 @@ function DashboardChatContent() {
     currentLoadedSessionRef.current = sessionQuery;
     setCurrentSessionId(sessionQuery);
 
-    if (!sessionQuery || !token) {
+    if (!sessionQuery) {
+      // New Chat requested
       setMessages([WELCOME_MESSAGE]);
       return;
     }
+
+    const currentToken = getAuthToken();
+    if (!currentToken) return;
 
     let isMounted = true;
     async function loadSessionMessages() {
@@ -67,27 +82,35 @@ function DashboardChatContent() {
       try {
         const res = await axios.get(`${BACKEND_BASE_URL}/api/chat/sessions/${sessionQuery}/messages`, {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${currentToken}`,
           },
           timeout: 30000,
         });
 
         if (isMounted && Array.isArray(res.data)) {
-          const loaded: Message[] = res.data.map((m: { sender: string; content: string; timestamp?: string }, idx: number) => ({
-            id: generateUniqueId(`loaded_${sessionQuery}_${idx}`),
-            role: m.sender === "user" ? "user" : "ai",
-            content: m.content || "",
-            timestamp: m.timestamp,
-          }));
-
-          setMessages([WELCOME_MESSAGE, ...loaded]);
+          if (res.data.length === 0) {
+            setMessages([WELCOME_MESSAGE]);
+          } else {
+            const loaded: Message[] = res.data.map((m: { sender: string; content: string; timestamp?: string }, idx: number) => ({
+              id: generateUniqueId(`loaded_${sessionQuery}_${idx}`),
+              role: m.sender === "user" ? "user" : "ai",
+              content: m.content || "",
+              timestamp: m.timestamp,
+            }));
+            setMessages(loaded);
+          }
           
           setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
           }, 100);
         }
-      } catch (err) {
-        console.warn("Session messages load notice (retaining welcome):", err);
+      } catch (err: unknown) {
+        if (axios.isAxiosError(err) && err.response?.status === 401) {
+          logout();
+          router.push("/login");
+          return;
+        }
+        console.warn("Session messages load notice:", err);
         if (isMounted) {
           setMessages([WELCOME_MESSAGE]);
         }
@@ -98,7 +121,7 @@ function DashboardChatContent() {
 
     loadSessionMessages();
     return () => { isMounted = false; };
-  }, [sessionQuery, token]);
+  }, [sessionQuery, getAuthToken, logout, router]);
 
   const toggleSources = useCallback((msgId: string) => {
     setExpandedSources(prev => ({
@@ -130,23 +153,30 @@ function DashboardChatContent() {
   }, []);
 
   const handleResetQuota = useCallback(async () => {
-    if (!token) return;
+    const currentToken = getAuthToken();
+    if (!currentToken) return;
     try {
       await axios.post(`${BACKEND_BASE_URL}/api/chat/reset-quota`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${currentToken}` }
       });
       // Remove any rate limit error bubbles from current view
       setMessages(prev => prev.filter(m => !m.isRateLimit));
-    } catch (err) {
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err) && err.response?.status === 401) {
+        logout();
+        router.push("/login");
+        return;
+      }
       console.error("Failed to reset quota:", err);
     }
-  }, [token]);
+  }, [getAuthToken, logout, router]);
 
   const handleSendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || isGenerating || loadingSession) return;
 
-    if (!token) {
+    const currentToken = getAuthToken();
+    if (!currentToken) {
       router.push("/login");
       return;
     }
@@ -158,6 +188,7 @@ function DashboardChatContent() {
       content: trimmed 
     };
     
+    // Always append user message immutably
     setMessages(prev => [...prev, userMsg]);
     setIsGenerating(true);
 
@@ -166,24 +197,28 @@ function DashboardChatContent() {
     }, 50);
 
     try {
-      const response = await axios.post(BACKEND_CHAT_URL, {
+      const payload = {
         message: trimmed,
-        session_id: currentSessionId ? Number(currentSessionId) : undefined
-      }, {
+        session_id: currentSessionId ? Number(currentSessionId) : null
+      };
+
+      const response = await axios.post(BACKEND_CHAT_URL, payload, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${currentToken}`,
           "Content-Type": "application/json"
         },
         timeout: 60000
       });
 
-      const { answer, context, session_id } = response.data || {};
+      const { answer, context, session_id, receipt } = response.data || {};
 
-      if (session_id && (!currentSessionId || currentSessionId !== session_id.toString())) {
-        currentLoadedSessionRef.current = session_id.toString();
-        setCurrentSessionId(session_id.toString());
+      // If a new session was created on backend, update our ref FIRST so useSearchParams change won't trigger re-fetch
+      if (session_id) {
+        const newSessionIdStr = session_id.toString();
+        currentLoadedSessionRef.current = newSessionIdStr;
+        setCurrentSessionId(newSessionIdStr);
         if (typeof window !== "undefined") {
-          window.history.replaceState(null, "", `/dashboard?session=${session_id}`);
+          window.history.replaceState(null, "", `/dashboard?session=${newSessionIdStr}`);
         }
       }
 
@@ -191,6 +226,9 @@ function DashboardChatContent() {
         window.dispatchEvent(new CustomEvent("chat-session-updated", { 
           detail: { sessionId: session_id || currentSessionId } 
         }));
+        if (receipt) {
+          window.dispatchEvent(new CustomEvent("notifications-updated"));
+        }
       }
 
       let sourceChunks: string[] = [];
@@ -198,7 +236,7 @@ function DashboardChatContent() {
         sourceChunks = context
           .split(/\n\s*\n/)
           .map(chunk => chunk.trim())
-          .filter(chunk => chunk.length > 0);
+          .filter(chunk => chunk.length > 0 && !chunk.startsWith("AVAILABLE DOCTORS:"));
       }
 
       const aiMsgId = generateUniqueId("ai");
@@ -206,9 +244,11 @@ function DashboardChatContent() {
         id: aiMsgId,
         role: "ai",
         content: answer || "I received your query, but no clinical content was provided.",
-        sources: sourceChunks.length > 0 ? sourceChunks : undefined
+        sources: sourceChunks.length > 0 ? sourceChunks : undefined,
+        receipt: (receipt as BookingReceipt) || undefined,
       };
 
+      // Always append AI message immutably
       setMessages(prev => [...prev, aiMsg]);
 
       setTimeout(() => {
@@ -221,7 +261,7 @@ function DashboardChatContent() {
       }, 80);
 
     } catch (err: unknown) {
-      let errorDetail = "Error: Could not retrieve response. Please check your connection and try again.";
+      let errorDetail = "Unable to reach Denova AI service. Please check your connection and try again.";
       let isRateLimit = false;
 
       if (axios.isAxiosError(err)) {
@@ -238,7 +278,7 @@ function DashboardChatContent() {
           router.push("/login");
           return;
         } else if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-          errorDetail = "Error: The request took longer than expected to process. Please click Retry to ask again.";
+          errorDetail = "The clinical request took longer than expected. Please click Retry to ask again.";
         }
       }
 
@@ -259,7 +299,7 @@ function DashboardChatContent() {
     } finally {
       setIsGenerating(false);
     }
-  }, [currentSessionId, isGenerating, loadingSession, logout, token]);
+  }, [currentSessionId, isGenerating, loadingSession, logout, router, getAuthToken]);
 
   const handleRetry = useCallback((retryText: string) => {
     if (retryText) {
@@ -295,7 +335,7 @@ function DashboardChatContent() {
                 />
               ))}
             
-              {/* Stable Thinking / Generating State */}
+              {/* Thinking / Generating State */}
               <AnimatePresence>
                 {isGenerating && (
                   <motion.div

@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import datetime, date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -9,6 +9,8 @@ from app.rag import query_rag, generate_answer
 from app.api.deps import get_current_user
 from app.data.database import get_db 
 from app.models.models import User, ChatSession, ChatMessage
+from app.rag import query_rag, generate_answer, BOOKING_TOOL
+from app.models.models import Doctor, Appointment, Notification
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
@@ -23,6 +25,7 @@ class ChatResponse(BaseModel):
     answer: str
     context: str
     session_id: int
+    receipt: Optional[dict] = None
 
 class SessionRenameRequest(BaseModel):
     title: str
@@ -192,15 +195,79 @@ def send_message(
     db.add(user_msg)
     chat_session.updated_at = now_utc
     db.commit()
+    
 
     # 3. RAG Retrieval & Generation with Chat History/Memory passed in
+    # context = query_rag(request.message)
+    # answer = generate_answer(request.message, context, chat_history=chat_history)
+
+    # # 4. Save assistant response to database
+    # assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer, timestamp=datetime.utcnow())
+    # db.add(assistant_msg)
+    # chat_session.updated_at = datetime.utcnow()
+    # db.commit()
+
+    # return ChatResponse(answer=answer, context=context, session_id=chat_session.id)
+    doctors= db.query(Doctor).all()
+    doctor_list_text="\n".join([f"{d.id}. {d.name} ({d.specialty}) -${d.consultation_fee:.2f}" for d in doctors]) or "No doctors available at the moment."
+    
     context = query_rag(request.message)
-    answer = generate_answer(request.message, context, chat_history=chat_history)
+    context = f"AVAILABLE DOCTORS:\n{doctor_list_text}\n\n{context}"
+    llm_message = generate_answer(request.message, context, chat_history=chat_history, tools=[BOOKING_TOOL])
 
-    # 4. Save assistant response to database
-    assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer, timestamp=datetime.utcnow())
-    db.add(assistant_msg)
-    chat_session.updated_at = datetime.utcnow()
-    db.commit()
+    receipt = None
+    if llm_message.tool_calls:
+        import json
+        tool_call = llm_message.tool_calls[0]
+        args = json.loads(tool_call.function.arguments)
 
-    return ChatResponse(answer=answer, context=context, session_id=chat_session.id)
+        doctor = db.query(Doctor).filter(Doctor.id == args.get("doctor_id")).first()
+        if doctor is None:
+            answer = "I couldn't find that doctor — could you pick from the available options again?"
+        else:
+            appt = Appointment(
+                user_id=current_user.id,
+                doctor_id=doctor.id,
+                dentist_name=doctor.name,
+                patient_name=args.get("patient_name") or current_user.full_name,
+                patient_relation=args.get("patient_relation", "Self"),
+                patient_age=args.get("patient_age"),
+                appointment_date=datetime.fromisoformat(args["appointment_date"]),
+                price=doctor.consultation_fee,
+                notes=args.get("notes"),
+                status="pending",
+            )
+            db.add(appt)
+            db.commit()
+            db.refresh(appt)
+
+            db.add(Notification(
+                user_id=current_user.id,
+                title="Appointment Requested",
+                message=f"Your appointment with {doctor.name} on {appt.appointment_date.strftime('%b %d, %Y at %I:%M %p')} is pending confirmation.",
+            ))
+            db.commit()
+
+            receipt = {
+                "confirmation_number": f"APT-{appt.id:06d}",
+                "doctor": doctor.name,
+                "specialty": doctor.specialty,
+                "date": appt.appointment_date.strftime("%B %d, %Y"),
+                "time": appt.appointment_date.strftime("%I:%M %p"),
+                "price": doctor.consultation_fee,
+                "status": appt.status,
+            }
+            answer = (
+                f"✅ Your appointment is booked!\n\n"
+                f"**Confirmation #:** {receipt['confirmation_number']}\n"
+                f"**Doctor:** {doctor.name} ({doctor.specialty})\n"
+                f"**Date:** {receipt['date']} at {receipt['time']}\n"
+                f"**Fee:** ${doctor.consultation_fee:.2f}\n\n"
+                f"You'll get a notification once it's confirmed."
+            )
+    else:
+        answer = llm_message.content
+
+    return ChatResponse(answer=answer, context=context, session_id=chat_session.id, receipt=receipt)
+
+

@@ -1,65 +1,276 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { Bell, Calendar, Stethoscope, CheckCircle2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  Bell, 
+  Calendar, 
+  CheckCircle2, 
+  AlertCircle, 
+  Loader2, 
+  RefreshCw, 
+  Inbox,
+  Check
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/app/context/AuthContext";
+import { formatConsultationTime } from "@/lib/utils";
+import axios from "axios";
 
-const notifications = [
-  { id: 1, type: "appointment", title: "Upcoming Appointment", message: "Dr. Smith - Tomorrow at 10:00 AM", time: "2 hours ago", unread: true, icon: Calendar },
-  { id: 2, type: "system", title: "New Feature Available", message: "Denova now supports image uploads for symptom analysis.", time: "1 day ago", unread: true, icon: Stethoscope },
-  { id: 3, type: "reminder", title: "Daily Habit Reminder", message: "Don't forget to floss tonight!", time: "2 days ago", unread: false, icon: CheckCircle2 },
-];
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+interface NotificationItem {
+  id: number;
+  title: string;
+  message: string;
+  read: boolean;
+  created_at: string;
+}
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: { transition: { staggerChildren: 0.1 } }
+  visible: { transition: { staggerChildren: 0.06 } }
 };
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
+  hidden: { opacity: 0, y: 12 },
   visible: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 300, damping: 24 } }
 };
 
 export default function NotificationsPage() {
+  const router = useRouter();
+  const { token, logout, isLoading: authLoading } = useAuth();
+  
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const getAuthToken = useCallback(() => {
+    if (token) return token;
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("token");
+    }
+    return null;
+  }, [token]);
+
+  const fetchNotifications = useCallback(async () => {
+    const currentToken = getAuthToken();
+    if (!currentToken) {
+      if (!authLoading) {
+        router.push("/login");
+      }
+      return;
+    }
+
+    setLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const res = await axios.get(`${BACKEND_BASE_URL}/api/notifications/me`, {
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+        },
+        timeout: 30000,
+      });
+
+      if (Array.isArray(res.data)) {
+        setNotifications(res.data);
+      }
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status;
+        if (status === 401) {
+          logout();
+          router.push("/login");
+          return;
+        }
+        console.error("Notifications fetch non-200 error:", status, err.response?.data);
+      }
+      setErrorMessage("Unable to load notifications. Please check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [getAuthToken, authLoading, logout, router]);
+
+  // Re-fetch on mount every time the page is navigated to
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  const handleMarkAsRead = async (notifId: number, currentRead: boolean) => {
+    if (currentRead) return;
+    const currentToken = getAuthToken();
+    if (!currentToken) return;
+
+    // Optimistically update UI
+    setNotifications(prev =>
+      prev.map(n => (n.id === notifId ? { ...n, read: true } : n))
+    );
+
+    try {
+      await axios.patch(`${BACKEND_BASE_URL}/api/notifications/${notifId}/read`, {}, {
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+        },
+        timeout: 15000,
+      });
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("notifications-updated"));
+      }
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 401) {
+          logout();
+          router.push("/login");
+          return;
+        }
+      }
+      // Revert if request failed
+      setNotifications(prev =>
+        prev.map(n => (n.id === notifId ? { ...n, read: false } : n))
+      );
+    }
+  };
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Notifications</h2>
-        <p className="text-slate-500 mt-2 font-medium">Stay updated on your appointments and health reminders.</p>
+    <div className="p-6 md:p-10 max-w-4xl mx-auto font-sans" suppressHydrationWarning>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 border-b border-slate-200/80 pb-6">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">Notifications</h1>
+            {unreadCount > 0 && (
+              <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-0.5 text-xs font-bold">
+                {unreadCount} Unread
+              </span>
+            )}
+          </div>
+          <p className="text-sm md:text-base text-slate-600 mt-1.5 font-normal">
+            Stay informed about your scheduled appointments, clinical updates, and care reminders.
+          </p>
+        </div>
+
+        <Button 
+          variant="outline"
+          size="sm"
+          onClick={fetchNotifications}
+          disabled={loading}
+          className="rounded-xl h-10 px-4 text-xs font-bold text-slate-700 self-start sm:self-auto cursor-pointer"
+        >
+          <RefreshCw size={14} className={`mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
-      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">
-        {notifications.map((notif) => (
-          <motion.div 
-            key={notif.id}
-            variants={itemVariants}
-            whileHover={{ scale: 1.01 }}
-            className={`flex items-start gap-5 p-6 rounded-2xl border transition-all cursor-pointer ${
-              notif.unread ? "bg-white border-emerald-100 shadow-sm hover:shadow-md" : "bg-slate-50 border-slate-100 hover:border-slate-200"
-            }`}
+      {/* Error Alert */}
+      {errorMessage && (
+        <div className="mb-6 flex items-center justify-between p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800 text-sm font-medium">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={18} className="text-red-600 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={fetchNotifications}
+            className="text-red-800 hover:bg-red-100 font-semibold text-xs h-8 px-3 rounded-lg cursor-pointer"
           >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
-              notif.unread ? "bg-emerald-100 text-emerald-600 shadow-inner" : "bg-slate-200 text-slate-500"
-            }`}>
-              <notif.icon size={24} />
-            </div>
-            
-            <div className="flex-1">
-              <div className="flex justify-between items-start mb-2">
-                <h3 className={`text-lg truncate pr-4 ${notif.unread ? "font-bold text-slate-900" : "font-semibold text-slate-700"}`}>
-                  {notif.title}
-                </h3>
-                <span className="text-xs font-semibold text-slate-400 shrink-0 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">{notif.time}</span>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-3 bg-white rounded-3xl border border-slate-200">
+          <Loader2 className="w-9 h-9 animate-spin text-emerald-600" />
+          <span className="text-sm sm:text-base font-semibold text-slate-500">Loading your notifications...</span>
+        </div>
+      ) : (
+        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-3.5">
+          <AnimatePresence>
+            {notifications.map((notif) => {
+              const isUnread = !notif.read;
+              return (
+                <motion.div 
+                  key={notif.id}
+                  variants={itemVariants}
+                  whileHover={{ scale: 1.006 }}
+                  onClick={() => handleMarkAsRead(notif.id, notif.read)}
+                  className={`flex items-start gap-4 sm:gap-5 p-5 sm:p-6 rounded-2xl border transition-all cursor-pointer ${
+                    isUnread 
+                      ? "bg-white border-emerald-200/90 shadow-sm hover:shadow-md ring-1 ring-emerald-500/20" 
+                      : "bg-slate-50/70 border-slate-200/70 hover:bg-slate-50"
+                  }`}
+                >
+                  {/* Icon */}
+                  <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0 border ${
+                    isUnread 
+                      ? "bg-emerald-50 text-emerald-600 border-emerald-200" 
+                      : "bg-slate-100 text-slate-400 border-slate-200"
+                  }`}>
+                    <Calendar size={20} />
+                  </div>
+                  
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap sm:flex-nowrap justify-between items-start gap-2 mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <h3 className={`text-base sm:text-lg truncate ${
+                          isUnread ? "font-extrabold text-slate-900" : "font-semibold text-slate-700"
+                        }`}>
+                          {notif.title}
+                        </h3>
+                        {isUnread && (
+                          <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            New
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs font-semibold text-slate-400 shrink-0 bg-white sm:bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
+                        {formatConsultationTime(notif.created_at)}
+                      </span>
+                    </div>
+                    <p className={`text-xs sm:text-sm leading-relaxed ${
+                      isUnread ? "text-slate-700 font-medium" : "text-slate-500 font-normal"
+                    }`}>
+                      {notif.message}
+                    </p>
+
+                    {isUnread && (
+                      <div className="mt-2.5 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                        <Check size={13} />
+                        <span>Click to mark as read</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Unread Glowing Dot */}
+                  {isUnread && (
+                    <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full shrink-0 mt-2 ring-4 ring-emerald-100 animate-pulse" />
+                  )}
+                </motion.div>
+              );
+            })}
+
+            {notifications.length === 0 && !errorMessage && (
+              <div className="text-center py-24 bg-white rounded-3xl border border-slate-200 p-6">
+                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-400">
+                  <Inbox size={30} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-1.5">No notifications</h3>
+                <p className="text-sm text-slate-500 font-normal max-w-sm mx-auto">
+                  You're all caught up! Updates regarding your clinical bookings and consultations will show here.
+                </p>
               </div>
-              <p className={`text-sm ${notif.unread ? "text-slate-600 font-medium" : "text-slate-500 font-medium"}`}>
-                {notif.message}
-              </p>
-            </div>
-            {notif.unread && (
-              <div className="w-3 h-3 bg-emerald-500 rounded-full shrink-0 mt-2 shadow-[0_0_10px_rgb(16,185,129,0.5)]" />
             )}
-          </motion.div>
-        ))}
-      </motion.div>
+          </AnimatePresence>
+        </motion.div>
+      )}
     </div>
   );
 }

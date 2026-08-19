@@ -8,11 +8,12 @@ import {
   Users, 
   MessageSquareText, 
   CalendarCheck, 
+  Stethoscope,
+  Tag,
   Building2, 
   SlidersHorizontal, 
   LogOut, 
-  ShieldCheck, 
-  Stethoscope
+  ShieldCheck
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth-context";
@@ -23,9 +24,11 @@ interface AdminSidebarProps {
 
 const adminNavItems = [
   { name: "Overview / Analytics", href: "/admin", icon: LayoutDashboard, badge: undefined },
-  { name: "Users", href: "/admin/users", icon: Users, badge: "35" },
+  { name: "Users", href: "/admin/users", icon: Users, badge: undefined },
   { name: "Chat Logs", href: "/admin/chat-logs", icon: MessageSquareText, badge: "Live" },
-  { name: "Appointments", href: "/admin/appointments", icon: CalendarCheck, badge: "38" },
+  { name: "Appointments", href: "/admin/appointments", icon: CalendarCheck, badge: undefined },
+  { name: "Doctors", href: "/admin/doctors", icon: Stethoscope, badge: "New" },
+  { name: "Pricing", href: "/admin/pricing", icon: Tag, badge: undefined },
   { name: "Clinics", href: "/admin/clinics", icon: Building2, badge: undefined },
   { name: "Settings", href: "/admin/settings", icon: SlidersHorizontal, badge: undefined },
 ];
@@ -64,7 +67,7 @@ export function AdminSidebar({ onCloseMobile }: AdminSidebarProps) {
         </Link>
       </div>
 
-      {/* Navigation List (6 Platform Control Items) */}
+      {/* Navigation List */}
       <div className="flex-1 overflow-y-auto py-5 px-3 space-y-1.5">
         <div className="px-3 pb-2 text-xs font-bold uppercase tracking-wider text-slate-500">
           Platform Controls
@@ -95,6 +98,8 @@ export function AdminSidebar({ onCloseMobile }: AdminSidebarProps) {
                   <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                     item.badge === "Live"
                       ? "bg-emerald-100 text-emerald-700 animate-pulse"
+                      : item.badge === "New"
+                      ? "bg-purple-100 text-purple-700"
                       : isActive 
                       ? "bg-purple-200 text-purple-800" 
                       : "bg-slate-100 text-slate-600"
@@ -108,25 +113,23 @@ export function AdminSidebar({ onCloseMobile }: AdminSidebarProps) {
         })}
       </div>
 
-      {/* Decluttered Bottom Anchor: Clean Profile & Single Subtle Exit Action */}
+      {/* Bottom Profile */}
       <div className="p-4 pt-5 mt-auto border-t border-slate-200/80 bg-slate-50/50 space-y-3 shrink-0">
-        {/* Admin Profile Block */}
         <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-white border border-slate-200 shadow-2xs">
           <Avatar className="h-9 w-9 border border-purple-200 ring-2 ring-purple-50 shrink-0">
             <AvatarFallback className="bg-purple-600 text-white font-bold text-sm">
-              {user?.avatar || "AT"}
+              {user?.avatar || "AD"}
             </AvatarFallback>
           </Avatar>
           <div className="flex flex-col flex-1 min-w-0">
             <div className="flex items-center gap-1">
-              <span className="text-sm font-bold text-slate-900 truncate">{user?.name || "Dr. Aris Thorne"}</span>
+              <span className="text-sm font-bold text-slate-900 truncate">{user?.name || "Administrator"}</span>
               <ShieldCheck size={14} className="text-purple-600 shrink-0" />
             </div>
-            <span className="text-xs text-slate-500 truncate">Chief Medical Admin</span>
+            <span className="text-xs text-slate-500 truncate">Super Admin</span>
           </div>
         </div>
 
-        {/* Single Subtle Secondary Exit Action */}
         <button
           onClick={handleExitAdmin}
           className="flex w-full items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-purple-700 hover:bg-purple-50/80 border border-slate-200 hover:border-purple-200 transition-colors cursor-pointer"

@@ -4,22 +4,30 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from app.data.database import get_db
-from app.models.models import Appointment, User
+from app.models.models import Appointment, Doctor, User, Notification
 from app.api.deps import get_current_user, get_current_admin
 
 router = APIRouter(prefix="/api/appointments", tags=["Appointments"])
 
 
 class AppointmentCreate(BaseModel):
-    dentist_name: str
+    doctor_id: int
     appointment_date: datetime
+    patient_name: Optional[str] = None
+    patient_relation: Optional[str] = "Self"
+    patient_age: Optional[int] = None
     notes: Optional[str] = None
 
 class AppointmentResponse(BaseModel):
     id: int
+    doctor_id: Optional[int]
     dentist_name: str
+    patient_name: Optional[str]
+    patient_relation: Optional[str]
+    patient_age: Optional[int]
     appointment_date: datetime
     status: str
+    price: float
     notes: Optional[str]
 
     class Config:
@@ -29,22 +37,42 @@ class AppointmentStatusUpdate(BaseModel):
     status: str  # "pending" | "confirmed" | "cancelled"
 
 
+def _notify(db: Session, user_id: int, title: str, message: str):
+    db.add(Notification(user_id=user_id, title=title, message=message))
+    db.commit()
+
+
 @router.post("/", response_model=AppointmentResponse)
 def create_appointment(
     request: AppointmentCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    doctor = db.query(Doctor).filter(Doctor.id == request.doctor_id).first()
+    if doctor is None:
+        raise HTTPException(status_code=404, detail="Doctor not found.")
+
     appt = Appointment(
         user_id=current_user.id,
-        dentist_name=request.dentist_name,
+        doctor_id=doctor.id,
+        dentist_name=doctor.name,
+        patient_name=request.patient_name or current_user.full_name,
+        patient_relation=request.patient_relation,
+        patient_age=request.patient_age,
         appointment_date=request.appointment_date,
+        price=doctor.consultation_fee,
         notes=request.notes,
         status="pending",
     )
     db.add(appt)
     db.commit()
     db.refresh(appt)
+
+    _notify(
+        db, current_user.id,
+        "Appointment Requested",
+        f"Your appointment with {doctor.name} on {appt.appointment_date.strftime('%b %d, %Y at %I:%M %p')} is pending confirmation.",
+    )
     return appt
 
 
@@ -69,10 +97,9 @@ def cancel_appointment(
         raise HTTPException(status_code=403, detail="You can't modify this appointment.")
     appt.status = "cancelled"
     db.commit()
+    _notify(db, current_user.id, "Appointment Cancelled", f"Your appointment on {appt.appointment_date.strftime('%b %d, %Y')} was cancelled.")
     return {"message": "Appointment cancelled."}
 
-
-# --- Admin-only endpoints ---
 
 @router.get("/admin/all", response_model=list[AppointmentResponse])
 def all_appointments(
@@ -97,4 +124,6 @@ def update_appointment_status(
     appt.status = request.status
     db.commit()
     db.refresh(appt)
+
+    _notify(db, appt.user_id, f"Appointment {request.status.capitalize()}", f"Your appointment on {appt.appointment_date.strftime('%b %d, %Y')} is now {request.status}.")
     return appt
