@@ -1,6 +1,6 @@
-# 🦷 Denova - Dental AI Chatbot
+# 🦷 Denova - Dental AI Chatbot & Booking Agent
 
-Denova is a premium HealthTech SaaS platform designed to provide medically sound, instant dental guidance. By leveraging an advanced Retrieval-Augmented Generation (RAG) architecture, Denova grounds its AI responses in verified medical data extracted from MedlinePlus, ensuring accurate, trustworthy, and context-aware information for patients.
+Denova is a premium HealthTech SaaS platform designed to provide medically sound, instant dental guidance and seamless appointment scheduling. By leveraging an advanced Retrieval-Augmented Generation (RAG) architecture and Agentic API tool-calling, Denova grounds its AI responses in verified medical data while autonomously managing clinic schedules, patient histories, and service pricing
 
 ---
 
@@ -16,6 +16,12 @@ Denova is a premium HealthTech SaaS platform designed to provide medically sound
 * **Knowledge Retrieval:** Employs ChromaDB as a local vector store to retrieve highly relevant context from MedlinePlus documentation.
 * **Precision AI Generation:** Utilizes LangChain to orchestrate the LLM, seamlessly blending retrieved medical context with natural language generation.
 * **Automated Data Ingestion:** Includes a custom Python ETL pipeline to parse, chunk, and vectorize raw MedlinePlus XML datasets.
+
+### 📅 Agentic Booking System
+* **Intelligent Tool Calling:** The AI agent extracts parameters (date, time, service, clinic) to autonomously trigger backend API tools.
+* **Smart Validation:** Automatically checks requested times against specific doctor availability (`slots`), clinic operating hours, and double-booking conflicts.
+* **Dynamic Alternatives:** Suggests the next 3 available time slots if a requested appointment time is unavailable.
+* **Comprehensive Schema:** Built on a relational database supporting multi-clinic architectures, dynamic service pricing overrides, and strict deletion safeguards.
 
 ---
 
@@ -37,6 +43,7 @@ Denova is a premium HealthTech SaaS platform designed to provide medically sound
 * LangChain & OpenAI Embeddings
 * ChromaDB (Vector Database)
 * BeautifulSoup4 & lxml (Data processing)
+* SQLAlchemy (ORM for relational database management)
 
 ---
 
@@ -49,12 +56,14 @@ Dental-AI-Chatbot/
 │   ├── components/           # Reusable UI components
 │   └── package.json          # Frontend dependencies
 ├── backend/                  # FastAPI & RAG Application
+│   ├── app/
+│   │   ├── api/              # API routes (appointments, clinics, services)
+│   │   └── models/           # SQLAlchemy DB models & schema
 │   ├── main.py               # API entry point
-│   ├── chat.py               # Chat streaming logic
+│   ├── chat.py               # Chat streaming logic & Agent tools
 │   ├── rag.py                # ChromaDB retrieval logic
 │   ├── process_medlineplus.py# XML parsing and chunking script
 │   └── mplus_topics.xml      # Raw medical data source
-└── requirements.txt          # Root Python dependencies
 ```
 
 
@@ -115,7 +124,7 @@ Backend (backend/.env):
 
 Code snippet
 OPENAI_API_KEY=your_openai_api_key_here
-Frontend (frontend/.env.local):
+DATABASE_URL=sqlite:///./denova.db  # Or your PostgreSQL connection string
 
 Code snippet
 NEXT_PUBLIC_API_URL=http://localhost:8000
