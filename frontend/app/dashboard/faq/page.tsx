@@ -46,7 +46,7 @@ const faqs = [
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: { transition: { staggerChildren: 0.08 } }
+  visible: { opacity: 1, transition: { staggerChildren: 0.08 } }
 };
 
 const itemVariants = {

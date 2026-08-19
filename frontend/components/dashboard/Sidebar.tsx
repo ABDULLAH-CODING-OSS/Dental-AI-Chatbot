@@ -209,7 +209,7 @@ export function Sidebar() {
                         }}
                         title="Delete consultation"
                         aria-label="Delete consultation"
-                        className="opacity-0 group-hover:opacity-100 p-1.5 mr-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer shrink-0"
+                        className="p-1.5 mr-1 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
                       >
                         <Trash2 size={15} />
                       </button>
@@ -259,7 +259,7 @@ export function Sidebar() {
           <DialogFooter className="mt-8 flex gap-3 sm:justify-end">
             <Button 
               variant="outline" 
-              className="rounded-xl h-11 px-5 text-sm font-semibold cursor-pointer" 
+              className="min-w-0 flex-1 rounded-xl h-11 px-3 text-center text-sm font-semibold whitespace-normal leading-tight cursor-pointer" 
               onClick={() => setSessionToDelete(null)}
             >
               Cancel
@@ -267,7 +267,7 @@ export function Sidebar() {
             <Button 
               variant="destructive" 
               disabled={isDeleting}
-              className="rounded-xl h-11 px-5 bg-red-600 hover:bg-red-700 text-sm font-semibold cursor-pointer" 
+              className="min-w-0 flex-1 rounded-xl h-11 px-3 text-center text-sm font-semibold whitespace-normal leading-tight cursor-pointer" 
               onClick={confirmDeleteSession}
             >
               {isDeleting ? "Deleting..." : "Delete"}

@@ -1,29 +1,40 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, Suspense } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Stethoscope, Loader2 } from "lucide-react";
+import { 
+  Stethoscope, 
+  Send, 
+  AlertCircle, 
+  FileText, 
+  ChevronDown, 
+  ChevronUp, 
+  BookOpen, 
+  AlertTriangle, 
+  Loader2,
+  Copy,
+  Check,
+  Pencil
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
-import { formatMarkdownToStructuredText } from "@/lib/utils";
-import { MessageItem, Message, BookingReceipt } from "@/components/dashboard/MessageItem";
-import { ChatInputArea } from "@/components/dashboard/ChatInputArea";
 import axios from "axios";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-const BACKEND_CHAT_URL = `${BACKEND_BASE_URL}/api/chat/`;
+const BACKEND_CHAT_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || "http://127.0.0.1:8000/api/chat/";
 
-const WELCOME_MESSAGE: Message = {
-  id: "initial_welcome",
-  role: "ai",
-  content: "Hello! I'm Denova, your AI dental assistant. How can I help you with your oral health, appointments, or symptoms today?",
+type Message = {
+  id: string;
+  role: "user" | "ai";
+  content: string;
+  sources?: string[];
+  isError?: boolean;
+  isRateLimit?: boolean;
+  timestamp?: string;
 };
-
-function generateUniqueId(prefix: string): string {
-  const timestamp = Date.now();
-  const randomStr = Math.random().toString(36).substring(2, 9);
-  return `${prefix}_${timestamp}_${randomStr}`;
-}
 
 function DashboardChatContent() {
   const router = useRouter();
@@ -32,87 +43,82 @@ function DashboardChatContent() {
   const { token, logout, isLoading: authLoading } = useAuth();
   
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(sessionQuery);
-  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: "initial_welcome",
+      role: "ai",
+      content: "Hello! I'm Denova, your AI dental assistant. How can I help you with your oral health and smile today?",
+    }
+  ]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Ref tracking the currently active session in memory to prevent unnecessary overwrites
-  const currentLoadedSessionRef = useRef<string | null>(sessionQuery);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const getAuthToken = useCallback(() => {
-    if (token) return token;
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("token");
-    }
-    return null;
-  }, [token]);
-
+  // Immediate authentication guard
   useEffect(() => {
-    if (!authLoading && !getAuthToken()) {
+    if (!authLoading && !token) {
       router.push("/login");
     }
-  }, [getAuthToken, authLoading, router]);
+  }, [token, authLoading, router]);
 
-  // Load session messages ONLY when sessionQuery is for a DIFFERENT session than currently loaded
+  // Load session messages when session query param changes
   useEffect(() => {
-    // If the active memory session is already matching the URL query, do not reload or wipe state
-    if (sessionQuery === currentLoadedSessionRef.current) {
-      return;
-    }
-
-    currentLoadedSessionRef.current = sessionQuery;
     setCurrentSessionId(sessionQuery);
 
-    if (!sessionQuery) {
-      // New Chat requested
-      setMessages([WELCOME_MESSAGE]);
+    if (!sessionQuery || !token) {
+      setMessages([
+        {
+          id: "initial_welcome",
+          role: "ai",
+          content: "Hello! I'm Denova, your AI dental assistant. How can I help you with your oral health and smile today?",
+        }
+      ]);
       return;
     }
-
-    const currentToken = getAuthToken();
-    if (!currentToken) return;
 
     let isMounted = true;
     async function loadSessionMessages() {
       setLoadingSession(true);
+      setMessages([]);
       try {
-        const res = await axios.get(`${BACKEND_BASE_URL}/api/chat/sessions/${sessionQuery}/messages`, {
+        const res = await axios.get(`http://127.0.0.1:8000/api/chat/sessions/${sessionQuery}/messages`, {
           headers: {
-            Authorization: `Bearer ${currentToken}`,
+            Authorization: `Bearer ${token}`,
           },
-          timeout: 30000,
+          timeout: 10000,
         });
 
         if (isMounted && Array.isArray(res.data)) {
-          if (res.data.length === 0) {
-            setMessages([WELCOME_MESSAGE]);
-          } else {
-            const loaded: Message[] = res.data.map((m: { sender: string; content: string; timestamp?: string }, idx: number) => ({
-              id: generateUniqueId(`loaded_${sessionQuery}_${idx}`),
-              role: m.sender === "user" ? "user" : "ai",
-              content: m.content || "",
-              timestamp: m.timestamp,
-            }));
-            setMessages(loaded);
-          }
-          
+          const loaded: Message[] = res.data.map((m: { sender: string; content: string; timestamp?: string }, idx: number) => ({
+            id: `loaded_${sessionQuery}_${idx}`,
+            role: m.sender === "user" ? "user" : "ai",
+            content: m.content,
+            timestamp: m.timestamp,
+          }));
+          setMessages(loaded.length > 0 ? loaded : [{
+            id: "empty_session",
+            role: "ai",
+            content: "This consultation does not have any messages yet.",
+          }]);
+          // Scroll to bottom on initial session load
           setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
           }, 100);
         }
-      } catch (err: unknown) {
-        if (axios.isAxiosError(err) && err.response?.status === 401) {
-          logout();
-          router.push("/login");
-          return;
-        }
-        console.warn("Session messages load notice:", err);
+      } catch {
         if (isMounted) {
-          setMessages([WELCOME_MESSAGE]);
+          setMessages([{
+            id: "session_load_error",
+            role: "ai",
+            content: "I couldn't load this consultation. Please try selecting it again.",
+            isError: true,
+          }]);
         }
       } finally {
         if (isMounted) setLoadingSession(false);
@@ -121,26 +127,26 @@ function DashboardChatContent() {
 
     loadSessionMessages();
     return () => { isMounted = false; };
-  }, [sessionQuery, getAuthToken, logout, router]);
+  }, [sessionQuery, token]);
 
-  const toggleSources = useCallback((msgId: string) => {
+  const toggleSources = (msgId: string) => {
     setExpandedSources(prev => ({
       ...prev,
       [msgId]: !prev[msgId]
     }));
-  }, []);
+  };
 
-  const handleCopyResponse = useCallback(async (msgId: string, content: string) => {
-    const structuredText = formatMarkdownToStructuredText(content);
+  const handleCopyResponse = async (msgId: string, content: string) => {
     try {
-      await navigator.clipboard.writeText(structuredText);
+      await navigator.clipboard.writeText(content);
       setCopiedId(msgId);
       setTimeout(() => {
         setCopiedId(prev => (prev === msgId ? null : prev));
       }, 2000);
     } catch {
+      // Fallback copy if clipboard API is restricted
       const textarea = document.createElement("textarea");
-      textarea.value = structuredText;
+      textarea.value = content;
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand("copy");
@@ -150,107 +156,92 @@ function DashboardChatContent() {
         setCopiedId(prev => (prev === msgId ? null : prev));
       }, 2000);
     }
-  }, []);
+  };
 
-  const handleResetQuota = useCallback(async () => {
-    const currentToken = getAuthToken();
-    if (!currentToken) return;
-    try {
-      await axios.post(`${BACKEND_BASE_URL}/api/chat/reset-quota`, {}, {
-        headers: { Authorization: `Bearer ${currentToken}` }
-      });
-      // Remove any rate limit error bubbles from current view
-      setMessages(prev => prev.filter(m => !m.isRateLimit));
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
-        logout();
-        router.push("/login");
-        return;
+  const handleEditUserMessage = (content: string) => {
+    setInput(content);
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        const len = content.length;
+        textareaRef.current.setSelectionRange(len, len);
       }
-      console.error("Failed to reset quota:", err);
-    }
-  }, [getAuthToken, logout, router]);
+    }, 50);
+  };
 
-  const handleSendMessage = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || isGenerating || loadingSession) return;
+  const handleSend = async () => {
+    const trimmedInput = input.trim();
+    if (!trimmedInput || isTyping) return;
 
-    const currentToken = getAuthToken();
-    if (!currentToken) {
+    if (!token) {
       router.push("/login");
       return;
     }
     
-    const userMsgId = generateUniqueId("user");
+    const userMsgId = `user_${Date.now()}`;
     const userMsg: Message = { 
       id: userMsgId, 
       role: "user", 
-      content: trimmed 
+      content: trimmedInput 
     };
     
-    // Always append user message immutably
     setMessages(prev => [...prev, userMsg]);
-    setIsGenerating(true);
+    setInput("");
+    setIsTyping(true);
 
+    // Smoothly scroll down to reveal the user message and thinking indicator
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 50);
 
     try {
-      const payload = {
-        message: trimmed,
-        session_id: currentSessionId ? Number(currentSessionId) : null
-      };
-
-      const response = await axios.post(BACKEND_CHAT_URL, payload, {
+      const response = await axios.post(BACKEND_CHAT_URL, {
+        message: trimmedInput,
+        session_id: currentSessionId ? Number(currentSessionId) : undefined
+      }, {
         headers: {
-          Authorization: `Bearer ${currentToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json"
         },
-        timeout: 60000
+        timeout: 30000
       });
 
-      const { answer, context, session_id, receipt } = response.data || {};
+      const { answer, context, session_id } = response.data || {};
 
-      // If a new session was created on backend, update our ref FIRST so useSearchParams change won't trigger re-fetch
-      if (session_id) {
-        const newSessionIdStr = session_id.toString();
-        currentLoadedSessionRef.current = newSessionIdStr;
-        setCurrentSessionId(newSessionIdStr);
-        if (typeof window !== "undefined") {
-          window.history.replaceState(null, "", `/dashboard?session=${newSessionIdStr}`);
-        }
+      // If a new session was created by backend, update the session ID and URL
+      if (session_id && (!currentSessionId || currentSessionId !== session_id.toString())) {
+        setCurrentSessionId(session_id.toString());
+        router.replace(`/dashboard?session=${session_id}`);
       }
 
+      // Notify Sidebar to immediately update and reorder recent sessions list to top
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("chat-session-updated", { 
           detail: { sessionId: session_id || currentSessionId } 
         }));
-        if (receipt) {
-          window.dispatchEvent(new CustomEvent("notifications-updated"));
-        }
       }
 
+      // Parse context chunks if available
       let sourceChunks: string[] = [];
       if (context && typeof context === "string") {
         sourceChunks = context
           .split(/\n\s*\n/)
           .map(chunk => chunk.trim())
-          .filter(chunk => chunk.length > 0 && !chunk.startsWith("AVAILABLE DOCTORS:"));
+          .filter(chunk => chunk.length > 0);
       }
 
-      const aiMsgId = generateUniqueId("ai");
+      const aiMsgId = `ai_${Date.now()}`;
       const aiMsg: Message = {
         id: aiMsgId,
         role: "ai",
-        content: answer || "I received your query, but no clinical content was provided.",
-        sources: sourceChunks.length > 0 ? sourceChunks : undefined,
-        receipt: (receipt as BookingReceipt) || undefined,
+        content: answer || "I received your query but no answer was provided.",
+        sources: sourceChunks.length > 0 ? sourceChunks : undefined
       };
 
-      // Always append AI message immutably
       setMessages(prev => [...prev, aiMsg]);
 
+      // FIX AUTO-SCROLL: Anchor to the top of Denova's newly generated response
+      // so the user sees the start/top of the response first, rather than jumping to the bottom!
       setTimeout(() => {
         const targetElement = document.getElementById(`msg-${aiMsgId}`);
         if (targetElement) {
@@ -258,54 +249,66 @@ function DashboardChatContent() {
         } else {
           messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
         }
-      }, 80);
+      }, 100);
 
     } catch (err: unknown) {
-      let errorDetail = "Unable to reach Denova AI service. Please check your connection and try again.";
-      let isRateLimit = false;
-
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
 
+        // Handle 429 Rate-Limit response specifically with backend's detail text
         if (status === 429) {
-          isRateLimit = true;
-          errorDetail = 
+          const rateLimitDetail = 
             (typeof err.response?.data?.detail === "string" ? err.response.data.detail : null) ||
             err.response?.data?.message ||
-            "You've reached your daily limit of messages. Please reset your quota to continue.";
-        } else if (status === 401) {
+            "You've reached your daily limit of messages. Please try again tomorrow.";
+
+          const errorId = `rate_${Date.now()}`;
+          setMessages(prev => [...prev, {
+            id: errorId,
+            role: "ai",
+            content: rateLimitDetail,
+            isError: true,
+            isRateLimit: true
+          }]);
+
+          setTimeout(() => {
+            document.getElementById(`msg-${errorId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 100);
+          return;
+        }
+
+        // Handle 401 Expired or Invalid Session specifically
+        if (status === 401) {
           logout();
           router.push("/login");
           return;
-        } else if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-          errorDetail = "The clinical request took longer than expected. Please click Retry to ask again.";
         }
       }
 
-      const errorId = generateUniqueId("err");
+      // Fallback clean inline error bubble for network errors, 500s, timeouts
+      const errorId = `err_${Date.now()}`;
       const errorMsg: Message = {
         id: errorId,
         role: "ai",
-        content: errorDetail,
-        isError: true,
-        isRateLimit,
-        retryQuery: isRateLimit ? undefined : trimmed,
+        content: "Something went wrong while consulting the clinical assistant. Please try again.",
+        isError: true
       };
       setMessages(prev => [...prev, errorMsg]);
 
       setTimeout(() => {
         document.getElementById(`msg-${errorId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 80);
+      }, 100);
     } finally {
-      setIsGenerating(false);
+      setIsTyping(false);
     }
-  }, [currentSessionId, isGenerating, loadingSession, logout, router, getAuthToken]);
+  };
 
-  const handleRetry = useCallback((retryText: string) => {
-    if (retryText) {
-      handleSendMessage(retryText);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
-  }, [handleSendMessage]);
+  };
 
   return (
     <div className="flex flex-col h-full relative bg-slate-50 font-sans" suppressHydrationWarning>
@@ -321,59 +324,253 @@ function DashboardChatContent() {
               <span className="text-base font-semibold text-slate-500">Loading consultation messages...</span>
             </div>
           ) : (
-            <div className="flex flex-col gap-8">
-              {messages.map((msg) => (
-                <MessageItem
-                  key={msg.id}
-                  msg={msg}
-                  isExpanded={Boolean(expandedSources[msg.id])}
-                  isCopied={copiedId === msg.id}
-                  onToggleSources={toggleSources}
-                  onCopy={handleCopyResponse}
-                  onRetry={handleRetry}
-                  onResetQuota={handleResetQuota}
-                />
-              ))}
-            
-              {/* Thinking / Generating State */}
-              <AnimatePresence>
-                {isGenerating && (
+            <AnimatePresence initial={false}>
+              {messages.map((msg) => {
+                const formattedContent = msg.content
+                  ? msg.content.replace(/<br\s*\/?>/gi, "\n")
+                  : "";
+
+                return (
                   <motion.div
-                    key="typing_indicator"
-                    initial={{ opacity: 0, y: 10 }}
+                    key={msg.id}
+                    id={`msg-${msg.id}`}
+                    initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.2 }}
-                    className="flex gap-4 max-w-[85%]"
+                    className={`scroll-mt-6 flex gap-4 max-w-[90%] md:max-w-[85%] ${
+                      msg.role === "user" ? "ml-auto flex-row-reverse" : ""
+                    }`}
                   >
-                    <motion.div 
-                      animate={{ scale: [1, 1.15, 1], rotate: [0, 5, -5, 0] }}
-                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                      className="w-11 h-11 rounded-2xl bg-emerald-50 shrink-0 flex items-center justify-center text-emerald-600 border border-emerald-200 shadow-sm mt-1"
-                    >
-                      <Stethoscope size={22} />
-                    </motion.div>
-                    <div className="flex items-center gap-2 p-5 py-6 rounded-3xl bg-white border border-slate-200 rounded-tl-sm shadow-sm h-fit">
-                      <span className="text-sm font-medium text-slate-500 mr-2">Denova is analyzing clinical data...</span>
-                      <motion.div animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: 0 }} className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                      <motion.div animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: 0.2 }} className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                      <motion.div animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: 0.4 }} className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                    {/* Avatar */}
+                    {msg.role === "ai" && (
+                      <div className={`w-11 h-11 rounded-2xl shrink-0 flex items-center justify-center text-white shadow-sm mt-1 ${
+                        msg.isRateLimit ? "bg-amber-600" : msg.isError ? "bg-red-500" : "bg-emerald-600"
+                      }`}>
+                        {msg.isRateLimit ? <AlertTriangle size={22} /> : <Stethoscope size={22} />}
+                      </div>
+                    )}
+                    
+                    <div className={`flex flex-col gap-2.5 min-w-0 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                      {/* Bubble */}
+                      <div className={`
+                        p-5 sm:p-6 rounded-3xl text-base leading-relaxed shadow-sm font-normal
+                        ${msg.role === "user" 
+                          ? "bg-linear-to-br from-emerald-600 to-teal-700 text-white rounded-tr-sm shadow-[0_4px_16px_rgb(5,150,105,0.22)]" 
+                          : msg.isRateLimit
+                            ? "bg-amber-50 text-amber-900 border border-amber-200 rounded-tl-sm flex items-start gap-3"
+                            : msg.isError 
+                            ? "bg-red-50 text-red-700 border border-red-200 rounded-tl-sm flex items-center gap-3 font-medium"
+                            : "bg-white border border-slate-200/90 text-slate-800 rounded-tl-sm shadow-xs"
+                        }
+                      `}>
+                        {msg.isRateLimit ? (
+                          <AlertTriangle size={22} className="shrink-0 text-amber-600 mt-0.5" />
+                        ) : msg.isError ? (
+                          <AlertCircle size={22} className="shrink-0 text-red-500" />
+                        ) : null}
+
+                        {/* AI message markdown parsing with GFM table support vs user plain text */}
+                        {msg.role === "user" ? (
+                          <span className="whitespace-pre-wrap font-medium text-base leading-relaxed tracking-normal">{msg.content}</span>
+                        ) : msg.isError || msg.isRateLimit ? (
+                          <span className="whitespace-pre-wrap text-base">{msg.content}</span>
+                        ) : (
+                          <div className="prose prose-slate max-w-none text-slate-800 text-base leading-relaxed prose-p:my-2.5 prose-p:leading-relaxed prose-p:first:mt-0 prose-p:last:mb-0 prose-strong:font-bold prose-strong:text-slate-900 prose-ul:my-2.5 prose-ul:list-disc prose-ul:pl-6 prose-ol:my-2.5 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-1 prose-headings:font-bold prose-headings:text-slate-900 prose-headings:my-3">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                h1: ({ ...props }) => (
+                                  <h1 className="text-2xl font-bold text-slate-900 mt-4 mb-2 tracking-tight" {...props} />
+                                ),
+                                h2: ({ ...props }) => (
+                                  <h2 className="text-xl font-bold text-slate-900 mt-3 mb-2" {...props} />
+                                ),
+                                h3: ({ ...props }) => (
+                                  <h3 className="text-lg font-bold text-slate-900 mt-2 mb-1" {...props} />
+                                ),
+                                table: ({ ...props }) => (
+                                  <div className="my-4 w-full overflow-x-auto rounded-2xl border border-slate-200 shadow-2xs">
+                                    <table className="w-full text-left text-sm border-collapse" {...props} />
+                                  </div>
+                                ),
+                                thead: ({ ...props }) => (
+                                  <thead className="bg-slate-100/90 border-b border-slate-200 text-slate-900 font-bold uppercase text-xs tracking-wider" {...props} />
+                                ),
+                                tbody: ({ ...props }) => (
+                                  <tbody className="divide-y divide-slate-100 bg-white text-slate-700" {...props} />
+                                ),
+                                tr: ({ ...props }) => (
+                                  <tr className="hover:bg-slate-50/70 transition-colors" {...props} />
+                                ),
+                                th: ({ ...props }) => (
+                                  <th className="px-4 py-3.5 font-bold text-slate-800 border-r border-slate-200/70 last:border-r-0" {...props} />
+                                ),
+                                td: ({ ...props }) => (
+                                  <td className="px-4 py-3.5 align-top leading-relaxed text-slate-600 font-medium border-r border-slate-100 last:border-r-0" {...props} />
+                                ),
+                                p: ({ ...props }) => (
+                                  <p className="my-2.5 leading-relaxed text-base first:mt-0 last:mb-0" {...props} />
+                                ),
+                                ul: ({ ...props }) => (
+                                  <ul className="my-2.5 list-disc list-outside pl-6 space-y-1 text-base" {...props} />
+                                ),
+                                ol: ({ ...props }) => (
+                                  <ol className="my-2.5 list-decimal list-outside pl-6 space-y-1 text-base" {...props} />
+                                ),
+                                strong: ({ ...props }) => (
+                                  <strong className="font-bold text-slate-900" {...props} />
+                                ),
+                              }}
+                            >
+                              {formattedContent}
+                            </ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Bar: Copy Response for Assistant, Edit Query for User */}
+                      <div className="flex items-center gap-2 px-1">
+                        {msg.role === "ai" && !msg.isError && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopyResponse(msg.id, msg.content)}
+                            title={copiedId === msg.id ? "Copied response to clipboard!" : "Copy response"}
+                            aria-label={copiedId === msg.id ? "Copied response to clipboard" : "Copy response"}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs focus-visible:ring-2 focus-visible:ring-emerald-500 select-none ${
+                              copiedId === msg.id
+                                ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                                : "bg-white hover:bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            {copiedId === msg.id ? (
+                              <>
+                                <Check size={14} className="text-emerald-600 animate-in zoom-in-50 duration-150" />
+                                <span>Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={14} className="text-slate-500" />
+                                <span>Copy Response</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+
+                        {msg.role === "user" && (
+                          <button
+                            type="button"
+                            onClick={() => handleEditUserMessage(msg.content)}
+                            title="Edit and modify this query"
+                            aria-label="Edit and modify this query"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/90 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 text-xs font-semibold text-slate-600 hover:text-emerald-700 transition-all cursor-pointer shadow-2xs focus-visible:ring-2 focus-visible:ring-emerald-500 select-none"
+                          >
+                            <Pencil size={13} className="text-emerald-600" />
+                            <span>Edit Query</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Sources Collapsible Snippets Section */}
+                      {msg.sources && msg.sources.length > 0 && (
+                        <div className="w-full max-w-2xl space-y-2 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => toggleSources(msg.id)}
+                            suppressHydrationWarning
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 text-xs sm:text-sm font-semibold text-slate-700 hover:text-emerald-800 transition-colors shadow-2xs cursor-pointer select-none"
+                          >
+                            <BookOpen size={15} className="text-emerald-600" />
+                            <span>Clinical Sources & Evidence ({msg.sources.length})</span>
+                            {expandedSources[msg.id] ? (
+                              <ChevronUp size={15} className="text-slate-400" />
+                            ) : (
+                              <ChevronDown size={15} className="text-slate-400" />
+                            )}
+                          </button>
+
+                          {/* Expanded Snippets */}
+                          {expandedSources[msg.id] && (
+                            <div className="space-y-2 pt-1 animate-in fade-in slide-in-from-top-2 duration-200">
+                              {msg.sources.map((chunk, i) => (
+                                <div 
+                                  key={i} 
+                                  className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs text-xs sm:text-sm text-slate-700 leading-relaxed font-normal space-y-1.5"
+                                >
+                                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-800 border-b border-slate-100 pb-1.5">
+                                    <FileText size={14} className="text-emerald-600 shrink-0" />
+                                    <span>Evidence Reference #{i + 1}</span>
+                                  </div>
+                                  <p className="whitespace-pre-wrap text-slate-600 pt-0.5">{chunk}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                );
+              })}
+            
+              {/* Thinking State */}
+              {isTyping && (
+                <motion.div
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="flex gap-4 max-w-[85%]"
+                >
+                  <motion.div 
+                    animate={{ scale: [1, 1.15, 1], rotate: [0, 5, -5, 0] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="w-11 h-11 rounded-2xl bg-emerald-50 shrink-0 flex items-center justify-center text-emerald-600 border border-emerald-200 shadow-sm mt-1"
+                  >
+                    <Stethoscope size={22} />
+                  </motion.div>
+                  <div className="flex items-center gap-2 p-5 py-6 rounded-3xl bg-white border border-slate-200 rounded-tl-sm shadow-sm h-fit">
+                    <span className="text-sm font-medium text-slate-500 mr-2">Denova is analyzing clinical data...</span>
+                    <motion.div animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: 0 }} className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                    <motion.div animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: 0.2 }} className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                    <motion.div animate={{ y: [0, -5, 0], opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: 0.4 }} className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           )}
           <div ref={messagesEndRef} className="h-6" />
         </div>
       </div>
 
-      {/* Isolated Input Area */}
-      <ChatInputArea
-        onSend={handleSendMessage}
-        isGenerating={isGenerating}
-        loadingSession={loadingSession}
-      />
+      {/* Input Area */}
+      <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-slate-50 via-slate-50/95 to-transparent pt-16 pb-7 px-4 pointer-events-none">
+        <div className="max-w-4xl mx-auto relative pointer-events-auto">
+          <div className="relative bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-200 focus-within:ring-4 focus-within:ring-emerald-500/20 focus-within:border-emerald-500 transition-all duration-300 flex items-end overflow-hidden">
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask Denova anything about dental symptoms, treatments, or care..."
+              className="min-h-19 max-h-55 border-0 focus-visible:ring-0 resize-none py-5 px-6 text-base font-medium text-slate-900 bg-transparent placeholder:text-slate-400"
+              disabled={isTyping || loadingSession}
+            />
+            <div className="p-3 shrink-0">
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button 
+                  onClick={handleSend}
+                  disabled={!input.trim() || isTyping || loadingSession}
+                  size="icon"
+                  className="h-12 w-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                >
+                  <Send size={20} className={input.trim() && !isTyping ? "ml-0.5" : ""} />
+                </Button>
+              </motion.div>
+            </div>
+          </div>
+          <div className="text-center mt-3">
+            <span className="text-xs font-semibold text-slate-400">Denova AI provides clinical dental information. Always consult a licensed dentist for emergencies or formal diagnoses.</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

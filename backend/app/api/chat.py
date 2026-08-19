@@ -1,5 +1,5 @@
 ﻿import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -16,6 +16,23 @@ router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
 # Configurable daily message limit with generous default (100 messages/day)
 DAILY_MESSAGE_LIMIT = int(os.environ.get("DAILY_MESSAGE_LIMIT", "100"))
+
+
+def _next_available_slots(db: Session, doctor_id: int, requested: datetime, count: int = 3) -> list[datetime]:
+    booked_slots = {
+        appointment.appointment_date
+        for appointment in db.query(Appointment).filter(
+            Appointment.doctor_id == doctor_id,
+            Appointment.status != "cancelled",
+        ).all()
+    }
+    slots = []
+    candidate = requested + timedelta(minutes=30)
+    while len(slots) < count and candidate <= requested + timedelta(days=14):
+        if candidate.weekday() < 5 and 9 <= candidate.hour < 17 and candidate not in booked_slots:
+            slots.append(candidate)
+        candidate += timedelta(minutes=30)
+    return slots
 
 class ChatRequest(BaseModel):
     message: str
@@ -225,49 +242,74 @@ def send_message(
         if doctor is None:
             answer = "I couldn't find that doctor — could you pick from the available options again?"
         else:
-            appt = Appointment(
-                user_id=current_user.id,
-                doctor_id=doctor.id,
-                dentist_name=doctor.name,
-                patient_name=args.get("patient_name") or current_user.full_name,
-                patient_relation=args.get("patient_relation", "Self"),
-                patient_age=args.get("patient_age"),
-                appointment_date=datetime.fromisoformat(args["appointment_date"]),
-                price=doctor.consultation_fee,
-                notes=args.get("notes"),
-                status="pending",
-            )
-            db.add(appt)
-            db.commit()
-            db.refresh(appt)
+            requested_date = datetime.fromisoformat(args["appointment_date"])
+            slot_taken = db.query(Appointment).filter(
+                Appointment.doctor_id == doctor.id,
+                Appointment.appointment_date == requested_date,
+                Appointment.status != "cancelled",
+            ).first()
 
-            db.add(Notification(
-                user_id=current_user.id,
-                title="Appointment Requested",
-                message=f"Your appointment with {doctor.name} on {appt.appointment_date.strftime('%b %d, %Y at %I:%M %p')} is pending confirmation.",
-            ))
-            db.commit()
+            if slot_taken:
+                alternative_slots = _next_available_slots(db, doctor.id, requested_date)
+                formatted_slots = "\n".join(
+                    f"- {slot.strftime('%A, %B %d at %I:%M %p')}" for slot in alternative_slots
+                )
+                answer = (
+                    f"That slot with {doctor.name} is not available. The next available slots are:\n\n"
+                    f"{formatted_slots or '- Please ask me for another date.'}\n\n"
+                    "Would you like to book one of these slots?"
+                )
+            else:
+                appt = Appointment(
+                    user_id=current_user.id,
+                    doctor_id=doctor.id,
+                    dentist_name=doctor.name,
+                    patient_name=args.get("patient_name") or current_user.full_name,
+                    patient_relation=args.get("patient_relation", "Self"),
+                    patient_age=args.get("patient_age"),
+                    appointment_date=requested_date,
+                    price=doctor.consultation_fee,
+                    notes=args.get("notes"),
+                    status="pending",
+                )
+                db.add(appt)
+                db.commit()
+                db.refresh(appt)
 
-            receipt = {
-                "confirmation_number": f"APT-{appt.id:06d}",
-                "doctor": doctor.name,
-                "specialty": doctor.specialty,
-                "date": appt.appointment_date.strftime("%B %d, %Y"),
-                "time": appt.appointment_date.strftime("%I:%M %p"),
-                "price": doctor.consultation_fee,
-                "status": appt.status,
-            }
-            answer = (
-                f"✅ Your appointment is booked!\n\n"
-                f"**Confirmation #:** {receipt['confirmation_number']}\n"
-                f"**Doctor:** {doctor.name} ({doctor.specialty})\n"
-                f"**Date:** {receipt['date']} at {receipt['time']}\n"
-                f"**Fee:** ${doctor.consultation_fee:.2f}\n\n"
-                f"You'll get a notification once it's confirmed."
-            )
+                db.add(Notification(
+                    user_id=current_user.id,
+                    title="Appointment Requested",
+                    message=f"Your appointment with {doctor.name} on {appt.appointment_date.strftime('%b %d, %Y at %I:%M %p')} is pending confirmation.",
+                ))
+                db.commit()
+
+                receipt = {
+                    "confirmation_number": f"APT-{appt.id:06d}",
+                    "doctor": doctor.name,
+                    "specialty": doctor.specialty,
+                    "date": appt.appointment_date.strftime("%B %d, %Y"),
+                    "time": appt.appointment_date.strftime("%I:%M %p"),
+                    "price": doctor.consultation_fee,
+                    "status": appt.status,
+                }
+                answer = (
+                    f"✅ Your appointment is booked!\n\n"
+                    f"**Confirmation #:** {receipt['confirmation_number']}\n"
+                    f"**Doctor:** {doctor.name} ({doctor.specialty})\n"
+                    f"**Date:** {receipt['date']} at {receipt['time']}\n"
+                    f"**Fee:** ${doctor.consultation_fee:.2f}\n\n"
+                    f"You'll get a notification once it's confirmed."
+                )
     else:
         answer = llm_message.content
 
+        # 4. Save assistant response to database
+    assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer, timestamp=datetime.utcnow())
+    db.add(assistant_msg)
+    chat_session.updated_at = datetime.utcnow()
+    db.commit()
+
     return ChatResponse(answer=answer, context=context, session_id=chat_session.id, receipt=receipt)
+
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 
 export type UserRole = "patient" | "admin";
 
@@ -40,12 +40,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const savedName = localStorage.getItem("name");
       const savedEmail = localStorage.getItem("email");
 
-      if (savedToken && savedName && savedRole) {
-        setToken(savedToken);
-        setRole(savedRole);
-        setFullName(savedName);
+      if (savedToken) {
+        const userRole = (savedRole === "admin" ? "admin" : "patient") as UserRole;
+        const userName = savedName || "Patient";
+        const userEmail = savedEmail || (userRole === "admin" ? "admin@denovadental.com" : "patient@denovadental.com");
 
-        const initials = savedName
+        setToken(savedToken);
+        setRole(userRole);
+        setFullName(userName);
+
+        const initials = userName
           .split(" ")
           .map((n) => n[0])
           .join("")
@@ -53,10 +57,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .slice(0, 2);
 
         setUser({
-          name: savedName,
-          email: savedEmail || (savedRole === "admin" ? "admin@denovadental.com" : "patient@denovadental.com"),
-          role: savedRole,
-          avatar: initials || (savedRole === "admin" ? "AT" : "JD"),
+          name: userName,
+          email: userEmail,
+          role: userRole,
+          avatar: initials || (userRole === "admin" ? "AT" : "JD"),
         });
       }
     } catch (error) {
@@ -66,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = (newToken: string, newRole: UserRole, newFullName: string, email?: string) => {
+  const login = useCallback((newToken: string, newRole: UserRole, newFullName: string, email?: string) => {
     const userEmail = email || (newRole === "admin" ? "admin@denovadental.com" : "patient@denovadental.com");
     
     // Save to localStorage so it persists across page refreshes
@@ -94,9 +98,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role: newRole,
       avatar: initials
     });
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     // Clear localStorage
     localStorage.removeItem("token");
     localStorage.removeItem("role");
@@ -107,11 +111,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRole(null);
     setFullName(null);
     setUser(null);
-  };
+  }, []);
 
-  const setAuthData = (newToken: string, newRole: UserRole, newFullName: string, email?: string) => {
+  const setAuthData = useCallback((newToken: string, newRole: UserRole, newFullName: string, email?: string) => {
     login(newToken, newRole, newFullName, email);
-  };
+  }, [login]);
 
   return (
     <AuthContext.Provider value={{ token, role, fullName, user, isLoading, login, logout, setAuthData }}>

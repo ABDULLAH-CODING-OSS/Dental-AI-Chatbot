@@ -50,7 +50,10 @@ interface AppointmentItem {
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: { transition: { staggerChildren: 0.08 } }
+  visible: { 
+    opacity: 1, 
+    transition: { staggerChildren: 0.08 } 
+  }
 };
 
 const itemVariants = {
@@ -60,7 +63,7 @@ const itemVariants = {
 
 export default function PatientAppointmentsPage() {
   const router = useRouter();
-  const { token, logout, isLoading: authLoading } = useAuth();
+  const { token, isLoading, logout } = useAuth();
 
   const [appointments, setAppointments] = useState<AppointmentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,45 +72,40 @@ export default function PatientAppointmentsPage() {
   
   const [aptToCancel, setAptToCancel] = useState<AppointmentItem | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
-
-  // Helper to always obtain the freshest auth token
-  const getAuthToken = useCallback(() => {
-    if (token) return token;
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("token");
-    }
-    return null;
-  }, [token]);
+  const fetchedTokenRef = useRef<string | null>(null);
 
   const showNotification = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const fetchAppointments = useCallback(async () => {
-    const currentToken = getAuthToken();
-    if (!currentToken) {
-      if (!authLoading) {
-        router.push("/login");
-      }
-      return;
-    }
+  const fetchAppointments = useCallback(async (authToken: string) => {
+    const url = `${BACKEND_BASE_URL}/api/appointments/me`;
+    const config = {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      timeout: 30000,
+    };
+
+    console.log("Fetching appointments now");
+    console.log("Request URL:", url);
+    console.log("Request Headers:", config.headers);
+    console.log("Request Config:", config);
 
     setLoading(true);
     setErrorMessage(null);
 
     try {
-      const res = await axios.get(`${BACKEND_BASE_URL}/api/appointments/me`, {
-        headers: {
-          Authorization: `Bearer ${currentToken}`,
-        },
-        timeout: 30000,
-      });
+      const res = await axios.get(url, config);
+      console.log("Appointments fetch success, status:", res.status, "data length:", Array.isArray(res.data) ? res.data.length : res.data);
+      console.log("Appointments data:", JSON.stringify(res.data));
 
       if (Array.isArray(res.data)) {
         setAppointments(res.data);
       }
     } catch (err: unknown) {
+      console.error("Appointments fetch catch error:", err);
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
         if (status === 401) {
@@ -115,28 +113,40 @@ export default function PatientAppointmentsPage() {
           router.push("/login");
           return;
         }
-        console.error("Appointments fetch non-200 error:", status, err.response?.data);
+        console.error("Appointments fetch non-200 response data:", status, err.response?.data);
       }
       setErrorMessage("Unable to load your appointments. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
-  }, [getAuthToken, authLoading, logout, router]);
+  }, [logout, router]);
 
-  // Re-fetch on mount every time the page is navigated to
+  // Wait for AuthContext to resolve, then fire fetch ONCE per resolved token
   useEffect(() => {
-    fetchAppointments();
-  }, [fetchAppointments]);
+    if (isLoading) return;
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    if (fetchedTokenRef.current === token) return;
+    fetchedTokenRef.current = token;
+    fetchAppointments(token);
+  }, [token, isLoading, fetchAppointments, router]);
+
+  const handleRefresh = () => {
+    if (token) {
+      fetchAppointments(token);
+    }
+  };
 
   const handleConfirmCancel = async () => {
-    const currentToken = getAuthToken();
-    if (!aptToCancel || !currentToken) return;
+    if (!aptToCancel || !token) return;
     setIsCancelling(true);
 
     try {
       await axios.delete(`${BACKEND_BASE_URL}/api/appointments/${aptToCancel.id}`, {
         headers: {
-          Authorization: `Bearer ${currentToken}`,
+          Authorization: `Bearer ${token}`,
         },
         timeout: 20000,
       });
@@ -152,6 +162,7 @@ export default function PatientAppointmentsPage() {
 
       showNotification("Appointment has been cancelled successfully.");
     } catch (err: unknown) {
+      console.error("Cancel appointment error:", err);
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 401) {
           logout();
@@ -191,7 +202,7 @@ export default function PatientAppointmentsPage() {
           <Button 
             variant="outline" 
             size="sm"
-            onClick={fetchAppointments} 
+            onClick={handleRefresh} 
             disabled={loading}
             className="h-11 px-4 rounded-xl text-xs font-bold text-slate-700 cursor-pointer"
           >
@@ -218,7 +229,7 @@ export default function PatientAppointmentsPage() {
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={fetchAppointments}
+            onClick={handleRefresh}
             className="text-red-800 hover:bg-red-100 font-semibold text-xs h-8 px-3 rounded-lg cursor-pointer"
           >
             Retry
@@ -243,12 +254,12 @@ export default function PatientAppointmentsPage() {
               return (
                 <motion.div key={apt.id} variants={itemVariants}>
                   <Card className={`border bg-white shadow-xs rounded-3xl overflow-hidden hover:shadow-md transition-all ${
-                    isCancelled ? "border-slate-200/70 opacity-75" : "border-slate-200 hover:border-emerald-200"
+                    isCancelled ? "border-slate-200/70 bg-slate-50/40" : "border-slate-200 hover:border-emerald-200"
                   }`}>
                     <CardContent className="p-6 sm:p-8 space-y-6">
                       {/* Top Row: Doctor, ID, Badge */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-                        <div className="flex items-center gap-3.5">
+                      <div className="flex min-w-0 flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                        <div className="flex min-w-0 items-center gap-3.5">
                           <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold border ${
                             isCancelled 
                               ? "bg-slate-100 text-slate-400 border-slate-200" 
@@ -256,8 +267,8 @@ export default function PatientAppointmentsPage() {
                           }`}>
                             <Stethoscope size={22} />
                           </div>
-                          <div>
-                            <h3 className="text-lg font-bold text-slate-900">{apt.dentist_name}</h3>
+                          <div className="min-w-0">
+                            <h3 className="truncate text-lg font-bold text-slate-900">{apt.dentist_name}</h3>
                             <p className="text-xs sm:text-sm text-slate-500 font-medium">
                               Patient: <strong className="text-slate-800">{apt.patient_name || "Patient"}</strong>
                               {apt.patient_relation && (
@@ -267,11 +278,11 @@ export default function PatientAppointmentsPage() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                        <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end sm:self-auto">
                           <span className="font-mono text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/80">
                             APT-{String(apt.id).padStart(6, "0")}
                           </span>
-                          <Badge className={`text-xs font-bold capitalize px-3 py-1 ${
+                          <Badge className={`whitespace-nowrap text-xs font-bold capitalize px-3 py-1 ${
                             apt.status === 'confirmed'
                               ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
                               : apt.status === 'pending'
@@ -375,7 +386,7 @@ export default function PatientAppointmentsPage() {
           <DialogFooter className="mt-6 flex gap-3 sm:justify-end">
             <Button 
               variant="outline" 
-              className="rounded-xl h-11 px-5 text-sm font-semibold cursor-pointer" 
+              className="min-w-0 flex-1 rounded-xl h-11 px-3 text-center text-sm font-semibold whitespace-normal leading-tight cursor-pointer" 
               onClick={() => setAptToCancel(null)}
             >
               Keep Appointment
@@ -383,7 +394,7 @@ export default function PatientAppointmentsPage() {
             <Button 
               variant="destructive" 
               disabled={isCancelling}
-              className="rounded-xl h-11 px-5 bg-red-600 hover:bg-red-700 text-sm font-bold cursor-pointer" 
+              className="min-w-0 flex-1 rounded-xl h-11 px-3 text-center text-sm font-bold whitespace-normal leading-tight cursor-pointer" 
               onClick={handleConfirmCancel}
             >
               {isCancelling ? "Cancelling..." : "Yes, Cancel Appointment"}

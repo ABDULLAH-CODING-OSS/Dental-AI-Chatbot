@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -30,7 +30,10 @@ interface NotificationItem {
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: { transition: { staggerChildren: 0.06 } }
+  visible: { 
+    opacity: 1, 
+    transition: { staggerChildren: 0.06 } 
+  }
 };
 
 const itemVariants = {
@@ -40,44 +43,40 @@ const itemVariants = {
 
 export default function NotificationsPage() {
   const router = useRouter();
-  const { token, logout, isLoading: authLoading } = useAuth();
+  const { token, isLoading, logout } = useAuth();
   
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const fetchedTokenRef = useRef<string | null>(null);
 
-  const getAuthToken = useCallback(() => {
-    if (token) return token;
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("token");
-    }
-    return null;
-  }, [token]);
+  const fetchNotifications = useCallback(async (authToken: string) => {
+    const url = `${BACKEND_BASE_URL}/api/notifications/me`;
+    const config = {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      timeout: 30000,
+    };
 
-  const fetchNotifications = useCallback(async () => {
-    const currentToken = getAuthToken();
-    if (!currentToken) {
-      if (!authLoading) {
-        router.push("/login");
-      }
-      return;
-    }
+    console.log("Fetching notifications now");
+    console.log("Request URL:", url);
+    console.log("Request Headers:", config.headers);
+    console.log("Request Config:", config);
 
     setLoading(true);
     setErrorMessage(null);
 
     try {
-      const res = await axios.get(`${BACKEND_BASE_URL}/api/notifications/me`, {
-        headers: {
-          Authorization: `Bearer ${currentToken}`,
-        },
-        timeout: 30000,
-      });
+      const res = await axios.get(url, config);
+      console.log("Notifications fetch success, status:", res.status, "data length:", Array.isArray(res.data) ? res.data.length : res.data);
+      console.log("Notifications data:", JSON.stringify(res.data));
 
       if (Array.isArray(res.data)) {
         setNotifications(res.data);
       }
     } catch (err: unknown) {
+      console.error("Notifications fetch catch error:", err);
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
         if (status === 401) {
@@ -85,23 +84,34 @@ export default function NotificationsPage() {
           router.push("/login");
           return;
         }
-        console.error("Notifications fetch non-200 error:", status, err.response?.data);
+        console.error("Notifications fetch non-200 response data:", status, err.response?.data);
       }
       setErrorMessage("Unable to load notifications. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
-  }, [getAuthToken, authLoading, logout, router]);
+  }, [logout, router]);
 
-  // Re-fetch on mount every time the page is navigated to
+  // Wait for AuthContext to resolve, then fire fetch ONCE per resolved token
   useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
+    if (isLoading) return;
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    if (fetchedTokenRef.current === token) return;
+    fetchedTokenRef.current = token;
+    fetchNotifications(token);
+  }, [token, isLoading, fetchNotifications, router]);
+
+  const handleRefresh = () => {
+    if (token) {
+      fetchNotifications(token);
+    }
+  };
 
   const handleMarkAsRead = async (notifId: number, currentRead: boolean) => {
-    if (currentRead) return;
-    const currentToken = getAuthToken();
-    if (!currentToken) return;
+    if (currentRead || !token) return;
 
     // Optimistically update UI
     setNotifications(prev =>
@@ -111,7 +121,7 @@ export default function NotificationsPage() {
     try {
       await axios.patch(`${BACKEND_BASE_URL}/api/notifications/${notifId}/read`, {}, {
         headers: {
-          Authorization: `Bearer ${currentToken}`,
+          Authorization: `Bearer ${token}`,
         },
         timeout: 15000,
       });
@@ -120,6 +130,7 @@ export default function NotificationsPage() {
         window.dispatchEvent(new CustomEvent("notifications-updated"));
       }
     } catch (err: unknown) {
+      console.error("Mark notification as read error:", err);
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 401) {
           logout();
@@ -157,7 +168,7 @@ export default function NotificationsPage() {
         <Button 
           variant="outline"
           size="sm"
-          onClick={fetchNotifications}
+          onClick={handleRefresh}
           disabled={loading}
           className="rounded-xl h-10 px-4 text-xs font-bold text-slate-700 self-start sm:self-auto cursor-pointer"
         >
@@ -176,7 +187,7 @@ export default function NotificationsPage() {
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={fetchNotifications}
+            onClick={handleRefresh}
             className="text-red-800 hover:bg-red-100 font-semibold text-xs h-8 px-3 rounded-lg cursor-pointer"
           >
             Retry

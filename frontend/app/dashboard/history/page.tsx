@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -10,9 +10,9 @@ import {
   History, 
   ChevronRight, 
   Loader2, 
-  AlertCircle,
-  RefreshCw,
-  Plus
+  AlertCircle, 
+  RefreshCw, 
+  Plus 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,7 +39,10 @@ interface HistoryItem {
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: { transition: { staggerChildren: 0.05 } }
+  visible: { 
+    opacity: 1, 
+    transition: { staggerChildren: 0.05 } 
+  }
 };
 
 const itemVariants = {
@@ -49,41 +52,36 @@ const itemVariants = {
 
 export default function HistoryPage() {
   const router = useRouter();
-  const { token, logout, isLoading: authLoading } = useAuth();
+  const { token, isLoading, logout } = useAuth();
   
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [itemToDelete, setItemToDelete] = useState<HistoryItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const fetchedTokenRef = useRef<string | null>(null);
 
-  const getAuthToken = useCallback(() => {
-    if (token) return token;
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("token");
-    }
-    return null;
-  }, [token]);
+  const fetchHistory = useCallback(async (authToken: string) => {
+    const url = `${BACKEND_BASE_URL}/api/chat/sessions`;
+    const config = {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+      timeout: 30000,
+    };
 
-  const fetchHistory = useCallback(async () => {
-    const currentToken = getAuthToken();
-    if (!currentToken) {
-      if (!authLoading) {
-        router.push("/login");
-      }
-      return;
-    }
+    console.log("Fetching history now");
+    console.log("Request URL:", url);
+    console.log("Request Headers:", config.headers);
+    console.log("Request Config:", config);
 
     setLoading(true);
     setErrorMessage(null);
 
     try {
-      const res = await axios.get(`${BACKEND_BASE_URL}/api/chat/sessions`, {
-        headers: {
-          Authorization: `Bearer ${currentToken}`,
-        },
-        timeout: 30000,
-      });
+      const res = await axios.get(url, config);
+      console.log("History fetch success, status:", res.status, "data length:", Array.isArray(res.data) ? res.data.length : res.data);
+      console.log("History data:", JSON.stringify(res.data));
 
       if (Array.isArray(res.data)) {
         const mapped: HistoryItem[] = res.data.map((s: { id: number; title: string; created_at: string; updated_at?: string }) => {
@@ -101,6 +99,7 @@ export default function HistoryPage() {
         setHistory(mapped);
       }
     } catch (err: unknown) {
+      console.error("History fetch catch error:", err);
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
         if (status === 401) {
@@ -108,32 +107,44 @@ export default function HistoryPage() {
           router.push("/login");
           return;
         }
-        console.error("History fetch non-200 error:", status, err.response?.data);
+        console.error("History fetch non-200 response data:", status, err.response?.data);
       }
       setErrorMessage("Unable to load consultation history. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
-  }, [getAuthToken, authLoading, logout, router]);
+  }, [logout, router]);
 
-  // Re-fetch on mount every time the page is navigated to
+  // Wait for AuthContext to resolve, then fire fetch ONCE per resolved token
   useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
+    if (isLoading) return;
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    if (fetchedTokenRef.current === token) return;
+    fetchedTokenRef.current = token;
+    fetchHistory(token);
+  }, [token, isLoading, fetchHistory, router]);
+
+  const handleRefresh = () => {
+    if (token) {
+      fetchHistory(token);
+    }
+  };
 
   const handleSelectSession = (sessionId: string) => {
     router.push(`/dashboard?session=${sessionId}`);
   };
 
   const handleDelete = async () => {
-    const currentToken = getAuthToken();
-    if (!itemToDelete || !currentToken) return;
+    if (!itemToDelete || !token) return;
     setIsDeleting(true);
 
     try {
       await axios.delete(`${BACKEND_BASE_URL}/api/chat/sessions/${itemToDelete.id}`, {
         headers: {
-          Authorization: `Bearer ${currentToken}`,
+          Authorization: `Bearer ${token}`,
         },
         timeout: 20000,
       });
@@ -146,6 +157,7 @@ export default function HistoryPage() {
         }));
       }
     } catch (err: unknown) {
+      console.error("Delete history session error:", err);
       if (axios.isAxiosError(err)) {
         if (err.response?.status === 401) {
           logout();
@@ -170,13 +182,25 @@ export default function HistoryPage() {
             Review, continue, and manage your previous clinical consultations with Denova AI.
           </p>
         </div>
-        <Button 
-          onClick={() => router.push("/dashboard")}
-          className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-5 h-11 shadow-sm self-start sm:self-auto cursor-pointer"
-        >
-          <Plus size={16} className="mr-2" />
-          New Consultation
-        </Button>
+        <div className="flex items-center gap-2.5">
+          <Button 
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={loading}
+            className="rounded-xl h-11 px-4 text-xs font-bold text-slate-700 cursor-pointer"
+          >
+            <RefreshCw size={14} className={`mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Button 
+            onClick={() => router.push("/dashboard")}
+            className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-5 h-11 shadow-sm cursor-pointer"
+          >
+            <Plus size={16} className="mr-2" />
+            New Consultation
+          </Button>
+        </div>
       </div>
 
       {/* Error Alert */}
@@ -189,7 +213,7 @@ export default function HistoryPage() {
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={fetchHistory}
+            onClick={handleRefresh}
             className="text-red-800 hover:bg-red-100 font-semibold text-xs h-8 px-3 rounded-lg cursor-pointer"
           >
             <RefreshCw size={13} className="mr-1" /> Retry
@@ -286,7 +310,7 @@ export default function HistoryPage() {
           <DialogFooter className="mt-6 flex gap-3 sm:justify-end">
             <Button 
               variant="outline" 
-              className="rounded-xl h-11 px-5 text-sm font-semibold cursor-pointer" 
+              className="min-w-0 flex-1 rounded-xl h-11 px-3 text-center text-sm font-semibold whitespace-normal leading-tight cursor-pointer" 
               onClick={() => setItemToDelete(null)}
             >
               Cancel
@@ -294,7 +318,7 @@ export default function HistoryPage() {
             <Button 
               variant="destructive" 
               disabled={isDeleting}
-              className="rounded-xl h-11 px-5 bg-red-600 hover:bg-red-700 text-sm font-bold cursor-pointer" 
+              className="min-w-0 flex-1 rounded-xl h-11 px-3 text-center text-sm font-bold whitespace-normal leading-tight cursor-pointer" 
               onClick={handleDelete}
             >
               {isDeleting ? "Deleting..." : "Delete"}
