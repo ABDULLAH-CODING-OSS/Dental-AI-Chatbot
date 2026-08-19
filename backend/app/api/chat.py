@@ -5,12 +5,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
 from typing import Optional, List
-from app.rag import query_rag, generate_answer
 from app.api.deps import get_current_user
 from app.data.database import get_db 
 from app.models.models import User, ChatSession, ChatMessage
-from app.rag import query_rag, generate_answer, BOOKING_TOOL
-from app.models.models import Doctor, Appointment, Notification
+from app.models.models import Clinic, ClinicPricing, Doctor, Service, Appointment, Notification
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
@@ -169,6 +167,8 @@ def send_message(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from app.rag import BOOKING_TOOL, generate_answer, query_rag
+
     now_utc = datetime.utcnow()
     today = now_utc.date()
     last_date = current_user.last_message_date.date() if current_user.last_message_date else None
@@ -225,11 +225,29 @@ def send_message(
     # db.commit()
 
     # return ChatResponse(answer=answer, context=context, session_id=chat_session.id)
-    doctors= db.query(Doctor).all()
-    doctor_list_text="\n".join([f"{d.id}. {d.name} ({d.specialty}) -${d.consultation_fee:.2f}" for d in doctors]) or "No doctors available at the moment."
+    doctors = db.query(Doctor).all()
+    clinics = db.query(Clinic).all()
+    services = db.query(Service).all()
+    clinic_list_text = "\n".join(
+        f"{clinic.id}. {clinic.name} | Location: {clinic.address} | Hours: {clinic.operating_hours or 'Not specified'}"
+        for clinic in clinics
+    ) or "No clinics available at the moment."
+    service_list_text = "\n".join(
+        f"{service.id}. {service.name} | Base price: ${service.base_price:.2f}"
+        for service in services
+    ) or "No services available at the moment."
+    doctor_list_text = "\n".join(
+        f"{doctor.id}. {doctor.name} ({doctor.specialty}) | Fee: ${doctor.consultation_fee:.2f} | Slots: {doctor.slots or 'Not specified'}"
+        for doctor in doctors
+    ) or "No doctors available at the moment."
     
     context = query_rag(request.message)
-    context = f"AVAILABLE DOCTORS:\n{doctor_list_text}\n\n{context}"
+    context = (
+        f"AVAILABLE CLINICS:\n{clinic_list_text}\n\n"
+        f"AVAILABLE SERVICES:\n{service_list_text}\n\n"
+        f"AVAILABLE DOCTORS AT SELECTED CLINIC:\n{doctor_list_text}\n\n"
+        f"{context}"
+    )
     llm_message = generate_answer(request.message, context, chat_history=chat_history, tools=[BOOKING_TOOL])
 
     receipt = None
@@ -238,11 +256,20 @@ def send_message(
         tool_call = llm_message.tool_calls[0]
         args = json.loads(tool_call.function.arguments)
 
+        clinic = db.query(Clinic).filter(Clinic.id == args.get("clinic_id")).first()
+        service = db.query(Service).filter(Service.id == args.get("service_id")).first()
         doctor = db.query(Doctor).filter(Doctor.id == args.get("doctor_id")).first()
-        if doctor is None:
-            answer = "I couldn't find that doctor — could you pick from the available options again?"
+        if clinic is None or service is None or doctor is None:
+            answer = "I couldn't find that clinic, service, or doctor — could you pick from the available options again?"
         else:
             requested_date = datetime.fromisoformat(args["appointment_date"])
+            service_price = service.base_price
+            pricing_override = db.query(ClinicPricing).filter(
+                ClinicPricing.clinic_id == clinic.id,
+                ClinicPricing.service_id == service.id,
+            ).first()
+            if pricing_override:
+                service_price = pricing_override.price
             slot_taken = db.query(Appointment).filter(
                 Appointment.doctor_id == doctor.id,
                 Appointment.appointment_date == requested_date,
@@ -263,12 +290,14 @@ def send_message(
                 appt = Appointment(
                     user_id=current_user.id,
                     doctor_id=doctor.id,
+                    clinic_id=clinic.id,
+                    service_id=service.id,
                     dentist_name=doctor.name,
                     patient_name=args.get("patient_name") or current_user.full_name,
                     patient_relation=args.get("patient_relation", "Self"),
                     patient_age=args.get("patient_age"),
                     appointment_date=requested_date,
-                    price=doctor.consultation_fee,
+                    price=service_price,
                     notes=args.get("notes"),
                     status="pending",
                 )
@@ -289,7 +318,7 @@ def send_message(
                     "specialty": doctor.specialty,
                     "date": appt.appointment_date.strftime("%B %d, %Y"),
                     "time": appt.appointment_date.strftime("%I:%M %p"),
-                    "price": doctor.consultation_fee,
+                    "price": service_price,
                     "status": appt.status,
                 }
                 answer = (
@@ -297,7 +326,7 @@ def send_message(
                     f"**Confirmation #:** {receipt['confirmation_number']}\n"
                     f"**Doctor:** {doctor.name} ({doctor.specialty})\n"
                     f"**Date:** {receipt['date']} at {receipt['time']}\n"
-                    f"**Fee:** ${doctor.consultation_fee:.2f}\n\n"
+                    f"**Fee:** ${service_price:.2f}\n\n"
                     f"You'll get a notification once it's confirmed."
                 )
     else:

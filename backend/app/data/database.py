@@ -22,6 +22,19 @@ def run_migrations():
                     conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN updated_at DATETIME;"))
                     conn.execute(text("UPDATE chat_sessions SET updated_at = created_at WHERE updated_at IS NULL;"))
                     conn.commit()
+
+            if "doctors" in inspector.get_table_names():
+                columns = [c["name"] for c in inspector.get_columns("doctors")]
+                if "slots" not in columns:
+                    conn.execute(text("ALTER TABLE doctors ADD COLUMN slots VARCHAR;"))
+                    conn.commit()
+
+            if "appointments" in inspector.get_table_names():
+                columns = [c["name"] for c in inspector.get_columns("appointments")]
+                for column in ("service_id", "clinic_id"):
+                    if column not in columns:
+                        conn.execute(text(f"ALTER TABLE appointments ADD COLUMN {column} INTEGER;"))
+                        conn.commit()
     except Exception as e:
         print(f"Migration check notice: {e}")
 

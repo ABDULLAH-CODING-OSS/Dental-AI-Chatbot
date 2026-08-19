@@ -53,6 +53,7 @@ interface Doctor {
   email: string;
   phone?: string | null;
   consultation_fee: number;
+  slots?: string | null;
 }
 
 export default function AdminDoctorsPage() {
@@ -73,6 +74,7 @@ export default function AdminDoctorsPage() {
   const [formEmail, setFormEmail] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formFee, setFormFee] = useState<string>("50");
+  const [formSlots, setFormSlots] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -119,7 +121,7 @@ export default function AdminDoctorsPage() {
       return;
     }
     if (token) {
-      fetchDoctors();
+      void Promise.resolve().then(fetchDoctors);
     }
   }, [token, authLoading, router, fetchDoctors]);
 
@@ -130,6 +132,7 @@ export default function AdminDoctorsPage() {
     setFormEmail("");
     setFormPhone("");
     setFormFee("50");
+    setFormSlots("");
     setFormError(null);
     setIsFormOpen(true);
   };
@@ -141,6 +144,7 @@ export default function AdminDoctorsPage() {
     setFormEmail(doc.email);
     setFormPhone(doc.phone || "");
     setFormFee(String(doc.consultation_fee));
+    setFormSlots(doc.slots || "");
     setFormError(null);
     setIsFormOpen(true);
   };
@@ -169,6 +173,7 @@ export default function AdminDoctorsPage() {
       email: formEmail.trim(),
       phone: formPhone.trim() || null,
       consultation_fee: feeNum,
+      slots: formSlots.trim() || null,
     };
 
     try {
@@ -235,7 +240,11 @@ export default function AdminDoctorsPage() {
         router.push("/login");
         return;
       }
-      showNotification("Failed to delete doctor. Please try again.");
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        showNotification("Cannot delete — has existing appointments");
+      } else {
+        showNotification("Failed to delete doctor. Please try again.");
+      }
     } finally {
       setIsDeleting(false);
       setDoctorToDelete(null);
@@ -414,6 +423,7 @@ export default function AdminDoctorsPage() {
                   <TableHead className="font-bold text-slate-700 text-xs uppercase tracking-wider py-4">Email Address</TableHead>
                   <TableHead className="font-bold text-slate-700 text-xs uppercase tracking-wider py-4">Phone</TableHead>
                   <TableHead className="font-bold text-slate-700 text-xs uppercase tracking-wider py-4">Consultation Fee</TableHead>
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase tracking-wider py-4">Slots</TableHead>
                   <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider py-4">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -456,6 +466,10 @@ export default function AdminDoctorsPage() {
                       <div className="font-bold text-emerald-700 text-sm">
                         ${doc.consultation_fee.toFixed(2)}
                       </div>
+                    </TableCell>
+
+                    <TableCell className="py-4 text-xs text-slate-600 whitespace-nowrap">
+                      {doc.slots || "Not specified"}
                     </TableCell>
 
                     <TableCell className="text-right py-4">
@@ -590,6 +604,19 @@ export default function AdminDoctorsPage() {
                   />
                 </div>
               </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="docSlots" className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+                  Slots
+                </Label>
+                <Input
+                  id="docSlots"
+                  placeholder="09:00-12:00,14:00-18:00"
+                  value={formSlots}
+                  onChange={(e) => setFormSlots(e.target.value)}
+                  className="rounded-xl h-11 text-sm border-slate-200"
+                />
+              </div>
             </div>
 
             <DialogFooter className="mt-6 flex gap-2 sm:justify-end">
@@ -619,7 +646,7 @@ export default function AdminDoctorsPage() {
           <DialogHeader>
             <DialogTitle className="text-xl sm:text-2xl font-bold text-slate-900">Remove Doctor</DialogTitle>
             <DialogDescription className="text-sm sm:text-base text-slate-600 mt-2.5 font-normal leading-relaxed">
-              Are you sure you want to remove <strong className="text-slate-900">"{doctorToDelete?.name}"</strong> ({doctorToDelete?.specialty}) from the directory?
+              Are you sure you want to remove <strong className="text-slate-900">&quot;{doctorToDelete?.name}&quot;</strong> ({doctorToDelete?.specialty}) from the directory?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-6 flex gap-3 sm:justify-end">

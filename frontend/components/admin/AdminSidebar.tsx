@@ -10,6 +10,7 @@ import {
   CalendarCheck, 
   Stethoscope,
   Tag,
+  BriefcaseBusiness,
   Building2, 
   SlidersHorizontal, 
   LogOut, 
@@ -29,6 +30,7 @@ const adminNavItems = [
   { name: "Appointments", href: "/admin/appointments", icon: CalendarCheck, badge: undefined },
   { name: "Doctors", href: "/admin/doctors", icon: Stethoscope, badge: "New" },
   { name: "Pricing", href: "/admin/pricing", icon: Tag, badge: undefined },
+  { name: "Services", href: "/admin/services", icon: BriefcaseBusiness, badge: "New" },
   { name: "Clinics", href: "/admin/clinics", icon: Building2, badge: undefined },
   { name: "Settings", href: "/admin/settings", icon: SlidersHorizontal, badge: undefined },
 ];

@@ -113,9 +113,10 @@ class Doctor(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     specialty = Column(String, nullable=False)
-    email = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
     phone = Column(String, nullable=True)
     consultation_fee = Column(Float, default=50.0)
+    slots = Column(String, nullable=True)
 
     appointments = relationship("Appointment", back_populates="doctor")
 
@@ -125,6 +126,8 @@ class Appointment(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     doctor_id = Column(Integer, ForeignKey("doctors.id"), nullable=True)
+    service_id = Column(Integer, ForeignKey("services.id"), nullable=True)
+    clinic_id = Column(Integer, ForeignKey("clinics.id"), nullable=True)
     dentist_name = Column(String, nullable=False) # Keep for backward compatibility or map from doctor
     
     # Patient specific booking details requested in scope
@@ -140,6 +143,47 @@ class Appointment(Base):
 
     user = relationship("User", back_populates="appointments")
     doctor = relationship("Doctor", back_populates="appointments")
+    service = relationship("Service", back_populates="appointments")
+    clinic = relationship("Clinic", back_populates="appointments")
+
+class Service(Base):
+    __tablename__ = "services"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    base_price = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    appointments = relationship("Appointment", back_populates="service")
+    clinic_pricing = relationship("ClinicPricing", back_populates="service")
+
+class Clinic(Base):
+    __tablename__ = "clinics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    address = Column(String, nullable=False)
+    phone = Column(String, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    operating_hours = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    appointments = relationship("Appointment", back_populates="clinic")
+    clinic_pricing = relationship("ClinicPricing", back_populates="clinic")
+
+class ClinicPricing(Base):
+    __tablename__ = "clinic_pricing"
+
+    id = Column(Integer, primary_key=True, index=True)
+    clinic_id = Column(Integer, ForeignKey("clinics.id"), nullable=False)
+    service_id = Column(Integer, ForeignKey("services.id"), nullable=False)
+    price = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    clinic = relationship("Clinic", back_populates="clinic_pricing")
+    service = relationship("Service", back_populates="clinic_pricing")
 
 class LocalClinic(Base):
     __tablename__ = "local_clinics"

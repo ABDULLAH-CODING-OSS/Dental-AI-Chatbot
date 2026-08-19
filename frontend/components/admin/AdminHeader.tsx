@@ -60,6 +60,10 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
     title: "Partner Dental Clinics Directory",
     subtitle: "Practice locations, operating hours, and referral routing."
   },
+  "/admin/services": {
+    title: "Dental Services Catalog",
+    subtitle: "Manage services and base prices available for appointment booking."
+  },
   "/admin/settings": {
     title: "System & AI Model Settings",
     subtitle: "Configure safety guardrails, triage sensitivity, and integration keys."

@@ -25,10 +25,12 @@ BOOKING_TOOL = {
     "type": "function",
     "function": {
         "name": "book_appointment",
-        "description": "Book a dental appointment once the user has confirmed the doctor, date/time, and patient details.",
+        "description": "Book a dental appointment once the user has confirmed the clinic, service, doctor, date/time, and patient details.",
         "parameters": {
             "type": "object",
             "properties": {
+                "clinic_id": {"type": "integer", "description": "The ID of the chosen clinic"},
+                "service_id": {"type": "integer", "description": "The ID of the chosen dental service"},
                 "doctor_id": {"type": "integer", "description": "The ID of the chosen doctor"},
                 "appointment_date": {"type": "string", "description": "ISO date-time, e.g. 2026-08-25T14:30:00"},
                 "patient_name": {"type": "string"},
@@ -36,7 +38,7 @@ BOOKING_TOOL = {
                 "patient_age": {"type": "integer"},
                 "notes": {"type": "string"},
             },
-            "required": ["doctor_id", "appointment_date"],
+            "required": ["clinic_id", "service_id", "doctor_id", "appointment_date"],
         },
     },
 }
@@ -133,13 +135,14 @@ SYSTEM_PROMPT = (
     "- If symptoms suggest professional evaluation is needed, always encourage booking an appointment via the app.\n\n"
 
     "BOOKING FLOW:\n"
-    "- As soon as the user expresses intent to book, immediately show them the AVAILABLE DOCTORS list from the "
-    "context (name, specialty, fee) so they can choose — do not wait for them to ask, and do not silently pick "
-    "one yourself unless they explicitly say 'you choose' or 'no preference'.\n"
-    "- Only ever reference doctors that appear in the AVAILABLE DOCTORS list provided in the context. Never invent "
-    "doctor names, specialties, or fees.\n"
-    "- Gather: doctor choice, date/time, patient name/age/relation. Once you have all required info AND the user "
-    "explicitly confirms, call the book_appointment tool. Never call it without explicit confirmation.\n\n"
+    "- When the user wants to book, show available clinics (with locations and hours), available services (with base prices), "
+    "and available doctors at that clinic. Have the user confirm clinic → service → doctor → time slot. Only call the tool "
+    "once all are selected AND the user confirms.\n"
+    "- Only ever reference clinics, services, and doctors that appear in the booking context. Never invent names, locations, "
+    "hours, prices, specialties, or fees.\n"
+    "- If the selected time slot is unavailable, apologize, show next 3 available slots, and ask if they prefer one of those instead.\n"
+    "- Gather: clinic, service, doctor, date/time, patient name/age/relation. Never call the book_appointment tool without "
+    "explicit confirmation.\n\n"
 
     "CRITICAL BOOKING RULE: You must NEVER write a booking confirmation, confirmation number, or receipt-style "
     "message yourself. A booking is only real if you actually call the book_appointment tool — the system "
