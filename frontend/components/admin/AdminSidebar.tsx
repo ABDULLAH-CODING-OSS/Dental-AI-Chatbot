@@ -54,7 +54,7 @@ export function AdminSidebar({ onCloseMobile }: AdminSidebarProps) {
       {/* Brand Header */}
       <div className="flex h-16 items-center justify-between px-5 border-b border-slate-100 bg-white shrink-0">
         <Link href="/admin" className="flex items-center gap-3 group" onClick={handleNavClick}>
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-700 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-purple-600/20 transition-transform group-hover:scale-105">
+          <div className="w-9 h-9 rounded-xl bg-linear-to-tr from-purple-700 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-purple-600/20 transition-transform group-hover:scale-105">
             <Stethoscope size={20} className="stroke-[2.2]" />
           </div>
           <div className="flex flex-col">

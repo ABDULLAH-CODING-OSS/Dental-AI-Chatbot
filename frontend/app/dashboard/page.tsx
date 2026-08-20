@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, Suspense } from "react";
+import { memo, useCallback, useState, useRef, useEffect, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Stethoscope, 
@@ -36,6 +36,51 @@ type Message = {
   timestamp?: string;
 };
 
+type MessageItemProps = {
+  msg: Message;
+  formattedContent: string;
+};
+
+const MessageItem = memo(function MessageItem({ msg, formattedContent }: MessageItemProps) {
+  return (
+    <div className="flex gap-4">
+      {msg.role === "ai" && (
+        <div className={`w-11 h-11 rounded-2xl shrink-0 flex items-center justify-center text-white shadow-sm mt-1 ${
+          msg.isRateLimit ? "bg-amber-600" : msg.isError ? "bg-red-500" : "bg-emerald-600"
+        }`}>
+          {msg.isRateLimit ? <AlertTriangle size={22} /> : <Stethoscope size={22} />}
+        </div>
+      )}
+
+      <div className={`flex flex-col gap-2.5 min-w-0 ${msg.role === "user" ? "items-end" : "items-start"}`}>
+        <div className={`
+          p-5 sm:p-6 rounded-3xl text-base leading-relaxed shadow-sm font-normal
+          ${msg.role === "user"
+            ? "bg-linear-to-br from-emerald-600 to-teal-700 text-white rounded-tr-sm shadow-[0_4px_16px_rgb(5,150,105,0.22)]"
+            : msg.isRateLimit
+              ? "bg-amber-50 text-amber-900 border border-amber-200 rounded-tl-sm flex items-start gap-3"
+              : msg.isError
+                ? "bg-red-50 text-red-700 border border-red-200 rounded-tl-sm flex items-center gap-3 font-medium"
+                : "bg-white border border-slate-200/90 text-slate-800 rounded-tl-sm shadow-xs"
+          }
+        `}>
+          {msg.isRateLimit ? <AlertTriangle size={22} className="shrink-0 text-amber-600 mt-0.5" /> : null}
+          {msg.isError ? <AlertCircle size={22} className="shrink-0 text-red-500" /> : null}
+          {msg.role === "user" ? (
+            <span className="whitespace-pre-wrap font-medium text-base leading-relaxed tracking-normal">{msg.content}</span>
+          ) : msg.isError || msg.isRateLimit ? (
+            <span className="whitespace-pre-wrap text-base">{msg.content}</span>
+          ) : (
+            <div className="prose prose-slate max-w-none text-slate-800 text-base leading-relaxed prose-p:my-2.5 prose-p:leading-relaxed prose-p:first:mt-0 prose-p:last:mb-0 prose-strong:font-bold prose-strong:text-slate-900 prose-ul:my-2.5 prose-ul:list-disc prose-ul:pl-6 prose-ol:my-2.5 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-1 prose-headings:font-bold prose-headings:text-slate-900 prose-headings:my-3">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{formattedContent}</ReactMarkdown>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 function DashboardChatContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -53,12 +98,34 @@ function DashboardChatContent() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
+  const [displayedCount, setDisplayedCount] = useState(20);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scrollToBottom = useCallback((targetId?: string, behavior: ScrollBehavior = "smooth") => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      const target = targetId ? document.getElementById(`msg-${targetId}`) : messagesEndRef.current;
+      target?.scrollIntoView({ behavior, block: targetId ? "start" : "nearest" });
+      scrollTimeoutRef.current = null;
+    }, 500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Immediate authentication guard
   useEffect(() => {
@@ -72,6 +139,7 @@ function DashboardChatContent() {
     setCurrentSessionId(sessionQuery);
 
     if (!sessionQuery || !token) {
+      setDisplayedCount(20);
       setMessages([
         {
           id: "initial_welcome",
@@ -85,6 +153,7 @@ function DashboardChatContent() {
     let isMounted = true;
     async function loadSessionMessages() {
       setLoadingSession(true);
+      setDisplayedCount(20);
       setMessages([]);
       try {
         const res = await axios.get(`http://127.0.0.1:8000/api/chat/sessions/${sessionQuery}/messages`, {
@@ -107,9 +176,7 @@ function DashboardChatContent() {
             content: "This consultation does not have any messages yet.",
           }]);
           // Scroll to bottom on initial session load
-          setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-          }, 100);
+          scrollToBottom(undefined, "auto");
         }
       } catch {
         if (isMounted) {
@@ -127,16 +194,16 @@ function DashboardChatContent() {
 
     loadSessionMessages();
     return () => { isMounted = false; };
-  }, [sessionQuery, token]);
+  }, [scrollToBottom, sessionQuery, token]);
 
-  const toggleSources = (msgId: string) => {
+  const toggleSources = useCallback((msgId: string) => {
     setExpandedSources(prev => ({
       ...prev,
       [msgId]: !prev[msgId]
     }));
-  };
+  }, []);
 
-  const handleCopyResponse = async (msgId: string, content: string) => {
+  const handleCopyResponse = useCallback(async (msgId: string, content: string) => {
     try {
       await navigator.clipboard.writeText(content);
       setCopiedId(msgId);
@@ -156,9 +223,9 @@ function DashboardChatContent() {
         setCopiedId(prev => (prev === msgId ? null : prev));
       }, 2000);
     }
-  };
+  }, []);
 
-  const handleEditUserMessage = (content: string) => {
+  const handleEditUserMessage = useCallback((content: string) => {
     setInput(content);
     setTimeout(() => {
       if (textareaRef.current) {
@@ -167,7 +234,13 @@ function DashboardChatContent() {
         textareaRef.current.setSelectionRange(len, len);
       }
     }, 50);
+  }, []);
+
+  const handleLoadMore = () => {
+    setDisplayedCount(prev => prev + 20);
   };
+
+  const visibleMessages = messages.slice(-displayedCount);
 
   const handleSend = async () => {
     const trimmedInput = input.trim();
@@ -190,9 +263,7 @@ function DashboardChatContent() {
     setIsTyping(true);
 
     // Smoothly scroll down to reveal the user message and thinking indicator
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 50);
+    scrollToBottom();
 
     try {
       const response = await axios.post(BACKEND_CHAT_URL, {
@@ -242,14 +313,7 @@ function DashboardChatContent() {
 
       // FIX AUTO-SCROLL: Anchor to the top of Denova's newly generated response
       // so the user sees the start/top of the response first, rather than jumping to the bottom!
-      setTimeout(() => {
-        const targetElement = document.getElementById(`msg-${aiMsgId}`);
-        if (targetElement) {
-          targetElement.scrollIntoView({ behavior: "smooth", block: "start" });
-        } else {
-          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-        }
-      }, 100);
+      scrollToBottom(aiMsgId);
 
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -271,9 +335,7 @@ function DashboardChatContent() {
             isRateLimit: true
           }]);
 
-          setTimeout(() => {
-            document.getElementById(`msg-${errorId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 100);
+          scrollToBottom(errorId);
           return;
         }
 
@@ -295,9 +357,7 @@ function DashboardChatContent() {
       };
       setMessages(prev => [...prev, errorMsg]);
 
-      setTimeout(() => {
-        document.getElementById(`msg-${errorId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 100);
+      scrollToBottom(errorId);
     } finally {
       setIsTyping(false);
     }
@@ -325,7 +385,19 @@ function DashboardChatContent() {
             </div>
           ) : (
             <AnimatePresence initial={false}>
-              {messages.map((msg) => {
+              {displayedCount < messages.length && (
+                <div className="flex justify-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleLoadMore}
+                    className="rounded-xl border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:text-emerald-700"
+                  >
+                    Load older messages
+                  </Button>
+                </div>
+              )}
+              {visibleMessages.map((msg) => {
                 const formattedContent = msg.content
                   ? msg.content.replace(/<br\s*\/?>/gi, "\n")
                   : "";
@@ -336,96 +408,11 @@ function DashboardChatContent() {
                     id={`msg-${msg.id}`}
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`scroll-mt-6 flex gap-4 max-w-[90%] md:max-w-[85%] ${
+                    className={`scroll-mt-6 flex flex-col gap-4 max-w-[90%] md:max-w-[85%] ${
                       msg.role === "user" ? "ml-auto flex-row-reverse" : ""
                     }`}
                   >
-                    {/* Avatar */}
-                    {msg.role === "ai" && (
-                      <div className={`w-11 h-11 rounded-2xl shrink-0 flex items-center justify-center text-white shadow-sm mt-1 ${
-                        msg.isRateLimit ? "bg-amber-600" : msg.isError ? "bg-red-500" : "bg-emerald-600"
-                      }`}>
-                        {msg.isRateLimit ? <AlertTriangle size={22} /> : <Stethoscope size={22} />}
-                      </div>
-                    )}
-                    
-                    <div className={`flex flex-col gap-2.5 min-w-0 ${msg.role === "user" ? "items-end" : "items-start"}`}>
-                      {/* Bubble */}
-                      <div className={`
-                        p-5 sm:p-6 rounded-3xl text-base leading-relaxed shadow-sm font-normal
-                        ${msg.role === "user" 
-                          ? "bg-linear-to-br from-emerald-600 to-teal-700 text-white rounded-tr-sm shadow-[0_4px_16px_rgb(5,150,105,0.22)]" 
-                          : msg.isRateLimit
-                            ? "bg-amber-50 text-amber-900 border border-amber-200 rounded-tl-sm flex items-start gap-3"
-                            : msg.isError 
-                            ? "bg-red-50 text-red-700 border border-red-200 rounded-tl-sm flex items-center gap-3 font-medium"
-                            : "bg-white border border-slate-200/90 text-slate-800 rounded-tl-sm shadow-xs"
-                        }
-                      `}>
-                        {msg.isRateLimit ? (
-                          <AlertTriangle size={22} className="shrink-0 text-amber-600 mt-0.5" />
-                        ) : msg.isError ? (
-                          <AlertCircle size={22} className="shrink-0 text-red-500" />
-                        ) : null}
-
-                        {/* AI message markdown parsing with GFM table support vs user plain text */}
-                        {msg.role === "user" ? (
-                          <span className="whitespace-pre-wrap font-medium text-base leading-relaxed tracking-normal">{msg.content}</span>
-                        ) : msg.isError || msg.isRateLimit ? (
-                          <span className="whitespace-pre-wrap text-base">{msg.content}</span>
-                        ) : (
-                          <div className="prose prose-slate max-w-none text-slate-800 text-base leading-relaxed prose-p:my-2.5 prose-p:leading-relaxed prose-p:first:mt-0 prose-p:last:mb-0 prose-strong:font-bold prose-strong:text-slate-900 prose-ul:my-2.5 prose-ul:list-disc prose-ul:pl-6 prose-ol:my-2.5 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-1 prose-headings:font-bold prose-headings:text-slate-900 prose-headings:my-3">
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                h1: ({ ...props }) => (
-                                  <h1 className="text-2xl font-bold text-slate-900 mt-4 mb-2 tracking-tight" {...props} />
-                                ),
-                                h2: ({ ...props }) => (
-                                  <h2 className="text-xl font-bold text-slate-900 mt-3 mb-2" {...props} />
-                                ),
-                                h3: ({ ...props }) => (
-                                  <h3 className="text-lg font-bold text-slate-900 mt-2 mb-1" {...props} />
-                                ),
-                                table: ({ ...props }) => (
-                                  <div className="my-4 w-full overflow-x-auto rounded-2xl border border-slate-200 shadow-2xs">
-                                    <table className="w-full text-left text-sm border-collapse" {...props} />
-                                  </div>
-                                ),
-                                thead: ({ ...props }) => (
-                                  <thead className="bg-slate-100/90 border-b border-slate-200 text-slate-900 font-bold uppercase text-xs tracking-wider" {...props} />
-                                ),
-                                tbody: ({ ...props }) => (
-                                  <tbody className="divide-y divide-slate-100 bg-white text-slate-700" {...props} />
-                                ),
-                                tr: ({ ...props }) => (
-                                  <tr className="hover:bg-slate-50/70 transition-colors" {...props} />
-                                ),
-                                th: ({ ...props }) => (
-                                  <th className="px-4 py-3.5 font-bold text-slate-800 border-r border-slate-200/70 last:border-r-0" {...props} />
-                                ),
-                                td: ({ ...props }) => (
-                                  <td className="px-4 py-3.5 align-top leading-relaxed text-slate-600 font-medium border-r border-slate-100 last:border-r-0" {...props} />
-                                ),
-                                p: ({ ...props }) => (
-                                  <p className="my-2.5 leading-relaxed text-base first:mt-0 last:mb-0" {...props} />
-                                ),
-                                ul: ({ ...props }) => (
-                                  <ul className="my-2.5 list-disc list-outside pl-6 space-y-1 text-base" {...props} />
-                                ),
-                                ol: ({ ...props }) => (
-                                  <ol className="my-2.5 list-decimal list-outside pl-6 space-y-1 text-base" {...props} />
-                                ),
-                                strong: ({ ...props }) => (
-                                  <strong className="font-bold text-slate-900" {...props} />
-                                ),
-                              }}
-                            >
-                              {formattedContent}
-                            </ReactMarkdown>
-                          </div>
-                        )}
-                      </div>
+                    <MessageItem msg={msg} formattedContent={formattedContent} />
 
                       {/* Action Bar: Copy Response for Assistant, Edit Query for User */}
                       <div className="flex items-center gap-2 px-1">
@@ -506,7 +493,6 @@ function DashboardChatContent() {
                           )}
                         </div>
                       )}
-                    </div>
                   </motion.div>
                 );
               })}

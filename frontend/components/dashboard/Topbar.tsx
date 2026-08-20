@@ -86,7 +86,7 @@ export function Topbar() {
           <div className="relative flex items-center justify-center w-10 h-10 rounded-xl text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/60 transition-colors cursor-pointer">
             <Bell size={20} />
             {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold shadow-sm ring-2 ring-white">
+              <span className="absolute top-1.5 right-1.5 flex items-center justify-center min-w-4.5 h-4.5 px-1 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold shadow-sm ring-2 ring-white">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -123,11 +123,12 @@ export function Topbar() {
 
             {/* Admin Console link ONLY visible if the user role is admin */}
             {user?.role === "admin" && (
-              <DropdownMenuItem asChild className="text-sm cursor-pointer rounded-xl py-2 font-semibold text-purple-700 focus:bg-purple-50 focus:text-purple-800">
-                <Link href="/admin" className="w-full flex items-center gap-2.5">
-                  <ShieldCheck size={15} />
-                  Admin Console
-                </Link>
+              <DropdownMenuItem
+                onClick={() => router.push("/admin")}
+                className="text-sm cursor-pointer rounded-xl py-2 font-semibold text-purple-700 focus:bg-purple-50 focus:text-purple-800"
+              >
+                <ShieldCheck size={15} />
+                Admin Console
               </DropdownMenuItem>
             )}
 

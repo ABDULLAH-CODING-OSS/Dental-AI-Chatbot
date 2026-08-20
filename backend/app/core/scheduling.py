@@ -1,8 +1,23 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta, timezone
 import re
 
 
 _TIME_RANGE = re.compile(r"^(\d{2}):(\d{2})-(\d{2}):(\d{2})$")
+APPOINTMENT_DURATION = timedelta(minutes=30)
+
+
+def normalize_to_utc(value: datetime) -> datetime:
+    """Return a timezone-naive UTC datetime for the database's DateTime column."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def time_overlaps(first_start: datetime, second_start: datetime) -> bool:
+    """Treat each appointment as a 30-minute window and test for overlap."""
+    first_end = first_start + APPOINTMENT_DURATION
+    second_end = second_start + APPOINTMENT_DURATION
+    return first_start < second_end and second_start < first_end
 
 
 def parse_time_ranges(value: str | None, field_name: str) -> list[tuple[time, time]]:

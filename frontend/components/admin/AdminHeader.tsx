@@ -168,7 +168,7 @@ export function AdminHeader() {
             <button className="relative flex items-center justify-center w-10 h-10 rounded-xl text-slate-600 hover:text-purple-700 hover:bg-purple-50 transition-colors cursor-pointer outline-none">
               <Bell size={20} />
               {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-purple-600 text-white text-[10px] font-extrabold shadow-sm ring-2 ring-white">
+                <span className="absolute top-1.5 right-1.5 flex items-center justify-center min-w-4.5 h-4.5 px-1 rounded-full bg-purple-600 text-white text-[10px] font-extrabold shadow-sm ring-2 ring-white">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
@@ -210,7 +210,7 @@ export function AdminHeader() {
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-3 px-2.5 py-1.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-purple-50 hover:border-purple-200 transition-all cursor-pointer outline-none shrink-0">
               <div className="hidden sm:flex flex-col text-right justify-center min-w-0">
-                <span className="text-sm font-bold text-slate-900 leading-tight truncate max-w-[140px]">
+                <span className="text-sm font-bold text-slate-900 leading-tight truncate max-w-35">
                   {user?.name || "Administrator"}
                 </span>
                 <span className="text-[11px] font-semibold text-purple-700 leading-tight mt-0.5">
@@ -239,11 +239,12 @@ export function AdminHeader() {
                 Admin Settings
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem asChild className="text-sm cursor-pointer rounded-xl py-2 font-medium text-emerald-700 focus:bg-emerald-50 focus:text-emerald-800">
-              <Link href="/dashboard" className="w-full flex items-center justify-between">
-                <span>Switch to Patient App</span>
-                <ExternalLink size={14} />
-              </Link>
+            <DropdownMenuItem
+              onClick={() => router.push("/dashboard")}
+              className="text-sm cursor-pointer rounded-xl py-2 font-medium text-emerald-700 focus:bg-emerald-50 focus:text-emerald-800"
+            >
+              <span>Switch to Patient App</span>
+              <ExternalLink size={14} className="ml-auto" />
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} className="text-sm text-red-600 cursor-pointer rounded-xl py-2 font-semibold focus:bg-red-50 focus:text-red-700">

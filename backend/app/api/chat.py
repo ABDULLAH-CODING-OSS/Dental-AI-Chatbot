@@ -9,6 +9,7 @@ from app.api.deps import get_current_user
 from app.data.database import get_db 
 from app.models.models import User, ChatSession, ChatMessage
 from app.models.models import Clinic, ClinicPricing, Doctor, Service, Appointment, Notification
+from app.core.scheduling import normalize_to_utc, time_overlaps
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
@@ -262,7 +263,7 @@ def send_message(
         if clinic is None or service is None or doctor is None:
             answer = "I couldn't find that clinic, service, or doctor — could you pick from the available options again?"
         else:
-            requested_date = datetime.fromisoformat(args["appointment_date"])
+            requested_date = normalize_to_utc(datetime.fromisoformat(args["appointment_date"]))
             service_price = service.base_price
             pricing_override = db.query(ClinicPricing).filter(
                 ClinicPricing.clinic_id == clinic.id,
@@ -270,13 +271,19 @@ def send_message(
             ).first()
             if pricing_override:
                 service_price = pricing_override.price
-            slot_taken = db.query(Appointment).filter(
+            same_day_appointments = db.query(Appointment).filter(
+                Appointment.clinic_id == clinic.id,
                 Appointment.doctor_id == doctor.id,
-                Appointment.appointment_date == requested_date,
-                Appointment.status != "cancelled",
-            ).first()
+                Appointment.appointment_date >= requested_date.replace(hour=0, minute=0, second=0, microsecond=0),
+                Appointment.appointment_date < requested_date.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1),
+                Appointment.status.in_(["confirmed", "pending"]),
+            ).all()
+            slot_taken = next((appt for appt in same_day_appointments if time_overlaps(appt.appointment_date, requested_date)), None)
+            duplicate = next((appt for appt in same_day_appointments if appt.user_id == current_user.id and appt.status == "confirmed" and time_overlaps(appt.appointment_date, requested_date)), None)
 
-            if slot_taken:
+            if duplicate:
+                answer = f"You already have an appointment with {doctor.name} at {requested_date.strftime('%I:%M %p').lstrip('0')} on this date."
+            elif slot_taken:
                 alternative_slots = _next_available_slots(db, doctor.id, requested_date)
                 formatted_slots = "\n".join(
                     f"- {slot.strftime('%A, %B %d at %I:%M %p')}" for slot in alternative_slots

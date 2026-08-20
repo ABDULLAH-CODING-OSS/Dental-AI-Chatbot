@@ -1,17 +1,9 @@
 import os
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
 from groq import Groq
-
-try:
-    from langchain_huggingface import HuggingFaceEmbeddings
-except ImportError:
-    from langchain_community.embeddings import HuggingFaceEmbeddings
-
-try:
-    from langchain_chroma import Chroma
-except ImportError:
-    from langchain_community.vectorstores import Chroma
 
 DB_DIR = "./chroma_db"
 DOCS_DIR = "./rag_docs"
@@ -135,6 +127,7 @@ SYSTEM_PROMPT = (
     "- If symptoms suggest professional evaluation is needed, always encourage booking an appointment via the app.\n\n"
 
     "BOOKING FLOW:\n"
+    "- Always ask the user for their timezone (for example, EST, PST, or IST) before confirming a time. Convert the stated local time to UTC internally before passing it to the booking tool. The system displays times back in the user's timezone.\n"
     "- When the user wants to book, show available clinics (with locations and hours), available services (with base prices), "
     "and available doctors at that clinic. Have the user confirm clinic → service → doctor → time slot. Only call the tool "
     "once all are selected AND the user confirms.\n"
