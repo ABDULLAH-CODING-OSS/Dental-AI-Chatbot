@@ -1,4 +1,6 @@
 import os
+from types import SimpleNamespace
+import groq
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -17,7 +19,7 @@ BOOKING_TOOL = {
     "type": "function",
     "function": {
         "name": "book_appointment",
-        "description": "Book a dental appointment once the user has confirmed the clinic, service, doctor, date/time, and patient details.",
+        "description": "Book a dental appointment only after get_available_slots has returned the exact requested time as available and the user has confirmed it. appointment_date must be a local clinic time in YYYY-MM-DDTHH:MM:SS format without a timezone offset or Z. Preserve the exact appointment_date requested by the user; never substitute another time.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -25,18 +27,41 @@ BOOKING_TOOL = {
                 "service_id": {"type": "integer", "description": "The ID of the chosen dental service"},
                 "doctor_id": {"type": "integer", "description": "The ID of the chosen doctor"},
                 "appointment_date": {"type": "string", "description": "ISO date-time, e.g. 2026-08-25T14:30:00"},
-                "patient_name": {"type": "string"},
-                "patient_relation": {"type": "string", "description": "Self, Child, Spouse, etc."},
+                "patient_name": {"type": "string", "description": "Patient name; omit when not provided"},
+                "patient_relation": {"type": "string", "description": "Self, Child, Spouse, etc.; use Self when booking for the user", "default": "Self"},
                 "patient_age": {"type": "integer"},
-                "notes": {"type": "string"},
+                "notes": {"type": "string", "description": "Additional booking notes; omit when not provided"},
             },
             "required": ["clinic_id", "service_id", "doctor_id", "appointment_date"],
         },
     },
 }
 
+GET_AVAILABLE_SLOTS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_available_slots",
+        "description": "Check real appointment availability before discussing or booking a doctor or time slot. Never claim availability without calling this tool.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "clinic_id": {"type": "integer"},
+                "doctor_id": {"type": "integer"},
+                "appointment_date": {"type": "string", "description": "Local date in YYYY-MM-DD format"},
+            },
+            "required": ["clinic_id", "doctor_id", "appointment_date"],
+        },
+    },
+}
 
-def generate_answer(query_text: str, context: str, chat_history: list = None, tools: list = None):
+
+def generate_answer(
+    query_text: str,
+    context: str,
+    chat_history: list = None,
+    tools: list = None,
+    tool_choice: str | dict = "auto",
+):
     user_prompt = f"Context:\n{context}\n\nQuestion: {query_text}"
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -50,9 +75,20 @@ def generate_answer(query_text: str, context: str, chat_history: list = None, to
     kwargs = {"model": "openai/gpt-oss-20b", "max_tokens": 1500, "messages": messages}
     if tools:
         kwargs["tools"] = tools
-        kwargs["tool_choice"] = "auto"
+        kwargs["tool_choice"] = tool_choice
 
-    response = groq_client.chat.completions.create(**kwargs)
+    try:
+        response = groq_client.chat.completions.create(**kwargs)
+    except groq.BadRequestError:
+        kwargs.pop("tools", None)
+        kwargs.pop("tool_choice", None)
+        try:
+            response = groq_client.chat.completions.create(**kwargs)
+        except groq.BadRequestError:
+            return SimpleNamespace(
+                content="I ran into an issue checking availability — could you tell me the clinic, doctor, and date again?",
+                tool_calls=None,
+            )
     return response.choices[0].message  # return full message object, not just .content
 
 
@@ -127,14 +163,22 @@ SYSTEM_PROMPT = (
     "- If symptoms suggest professional evaluation is needed, always encourage booking an appointment via the app.\n\n"
 
     "BOOKING FLOW:\n"
-    "- Always ask the user for their timezone (for example, EST, PST, or IST) before confirming a time. Convert the stated local time to UTC internally before passing it to the booking tool. The system displays times back in the user's timezone.\n"
+    "- Booking checklist: before finalizing, collect patient name, appointment date, exact time slot, and service type. Treat all appointment times as local clinic times; do not ask for or convert timezones. Use the current date context from the conversation and do not invent dates or clinic hours.\n"
+    "- Before saying a doctor or time slot is available, you MUST call get_available_slots and use its returned slots. Never infer availability from clinic hours, doctor slots, or context text alone.\n"
+    "- If the user changes the clinic, doctor, date, or requested time after availability was checked, discard the previous availability result and call get_available_slots again for the new selection.\n"
+    "- When calling book_appointment, appointment_date must exactly match the user's requested time and the time returned by get_available_slots. Never silently substitute an alternative. If a returned booking time differs, do not claim success; explain the difference and ask whether to keep it or choose another time.\n"
+    "- Appointment times are local to the selected clinic. Never ask for PST, EST, IST, or any other timezone, and never convert the selected time.\n"
     "- When the user wants to book, show available clinics (with locations and hours), available services (with base prices), "
     "and available doctors at that clinic. Have the user confirm clinic → service → doctor → time slot. Only call the tool "
     "once all are selected AND the user confirms.\n"
+    "- Do not repeat the available-slot list after the user has already selected an exact time and provided their preferences. Acknowledge the selected time and continue with only the missing checklist item.\n"
+    "- After an availability list is shown for the selected doctor and date, a user's time reply such as 10:00, 22:00, 1:00 PM, or 5:30 means they are selecting that listed slot: call book_appointment, do not call get_available_slots again.\n"
+    "- Check the conversation history and booking_state before asking questions. If name, date, time, or service is already known, do not ask for it again. If patient_name, patient_age, or relation is non-null in booking_state, never ask for that value again.\n"
+    "- When all required booking details are present, move to a concise confirmation summary and trigger book_appointment rather than looping back to slot selection. If the user repeats a chosen time emphatically, acknowledge it and proceed; do not treat it as a new availability search.\n"
     "- Only ever reference clinics, services, and doctors that appear in the booking context. Never invent names, locations, "
     "hours, prices, specialties, or fees.\n"
     "- If the selected time slot is unavailable, apologize, show next 3 available slots, and ask if they prefer one of those instead.\n"
-    "- Gather: clinic, service, doctor, date/time, patient name/age/relation. Never call the book_appointment tool without "
+    "- Gather only missing details. Never call the book_appointment tool without "
     "explicit confirmation.\n\n"
 
     "CRITICAL BOOKING RULE: You must NEVER write a booking confirmation, confirmation number, or receipt-style "

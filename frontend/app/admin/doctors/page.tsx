@@ -287,7 +287,7 @@ export default function AdminDoctorsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-6">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
               Clinical Doctors Management
             </h1>
             <Badge className="bg-purple-100 text-purple-800 border border-purple-200 text-xs font-semibold px-2.5 py-0.5">

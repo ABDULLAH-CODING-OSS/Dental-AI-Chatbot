@@ -118,13 +118,34 @@
 }
 
 @layer base {
+  html {
+    font-size: 16px;
+    @apply font-sans;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground text-base;
   }
-  html {
-    @apply font-sans;
-  }
+}
+
+.chat-message-content {
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-message-content strong,
+.chat-message-content code,
+.chat-message-content li,
+.chat-message-content p {
+  line-height: 1.5;
+}
+
+.chat-action-button {
+  @apply inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-2xs transition-colors;
 }

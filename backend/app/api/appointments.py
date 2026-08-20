@@ -1,10 +1,10 @@
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, field_serializer
 from typing import Optional
 from app.data.database import get_db
-from app.core.scheduling import is_within_ranges, normalize_to_utc, parse_time_ranges, time_overlaps
+from app.core.scheduling import is_in_the_past, is_within_ranges, parse_time_ranges, time_overlaps, utc_now_naive
 from app.models.models import Appointment, Clinic, ClinicPricing, Doctor, Service, User, Notification
 from app.api.deps import get_current_user, get_current_admin
 
@@ -54,8 +54,7 @@ class AppointmentResponse(BaseModel):
 
     @field_serializer("appointment_date")
     def serialize_appointment_date(self, value: datetime) -> str:
-        utc_value = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
-        return utc_value.isoformat().replace("+00:00", "Z")
+        return value.replace(tzinfo=None).isoformat()
 
 class AppointmentStatusUpdate(BaseModel):
     status: str  # "pending" | "confirmed" | "cancelled"
@@ -91,7 +90,10 @@ def _resolved_booking_data(
 
     reason = "This slot is available."
     available = True
-    if doctor_ranges and not is_within_ranges(appointment_date, doctor_ranges):
+    if is_in_the_past(appointment_date):
+        available = False
+        reason = "Appointment time must be in the future."
+    elif doctor_ranges and not is_within_ranges(appointment_date, doctor_ranges):
         available = False
         reason = "Requested time is outside the doctor's available slots."
     elif clinic_ranges and not is_within_ranges(appointment_date, clinic_ranges):
@@ -159,8 +161,11 @@ def _next_available_slots(
     clinic_ranges: list[tuple[time, time]],
 ) -> list[str]:
     candidates = []
-    start = requested.replace(second=0, microsecond=0) + timedelta(minutes=30)
-    end = requested + timedelta(days=30)
+    start = max(
+        requested.replace(second=0, microsecond=0) + timedelta(minutes=30),
+        utc_now_naive().replace(second=0, microsecond=0) + timedelta(minutes=30),
+    )
+    end = max(requested, start) + timedelta(days=30)
     candidate = start
     while candidate <= end and len(candidates) < 3:
         doctor_available = not doctor_ranges or is_within_ranges(candidate, doctor_ranges)
@@ -179,7 +184,7 @@ def validate_slot(
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    appointment_datetime = normalize_to_utc(datetime.combine(request.appointment_date, request.appointment_time))
+    appointment_datetime = datetime.combine(request.appointment_date, request.appointment_time)
     _, _, _, _, available, message, next_available_slots = _resolved_booking_data(
         db, request.clinic_id, request.doctor_id, request.service_id, appointment_datetime
     )
@@ -196,7 +201,9 @@ def create_appointment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    appointment_date = normalize_to_utc(request.appointment_date)
+    appointment_date = request.appointment_date.replace(tzinfo=None)
+    if is_in_the_past(appointment_date):
+        raise HTTPException(status_code=400, detail="Appointment time must be in the future.")
     doctor = db.query(Doctor).filter(Doctor.id == request.doctor_id).first() if request.doctor_id else None
     if request.doctor_id and doctor is None:
         raise HTTPException(status_code=404, detail="Doctor not found.")

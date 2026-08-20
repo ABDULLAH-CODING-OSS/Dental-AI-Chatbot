@@ -82,7 +82,7 @@ export function AdminSidebar({ onCloseMobile }: AdminSidebarProps) {
               <motion.div
                 whileHover={{ x: 3 }}
                 whileTap={{ scale: 0.98 }}
-                className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-base font-semibold transition-all ${
                   isActive
                     ? "bg-purple-50 text-purple-800 shadow-xs border border-purple-100"
                     : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"

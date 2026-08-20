@@ -7,8 +7,7 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * Normalizes and parses an ISO date string into a Date object.
- * If the string lacks timezone indicators ('Z' or offset), it is assumed to be UTC
- * so that JavaScript correctly converts it to the user's local timezone.
+ * Appointment timestamps without a timezone are clinic-local wall-clock values.
  */
 export function parseISODate(dateInput: string | Date | undefined | null): Date | null {
   if (!dateInput) return null;
@@ -19,10 +18,7 @@ export function parseISODate(dateInput: string | Date | undefined | null): Date 
   let str = String(dateInput).trim();
   if (!str) return null;
 
-  const hasTimezone = str.endsWith("Z") || /[+-]\d{2}(:?\d{2})?$/.test(str);
-  if (!hasTimezone) {
-    str = str.replace(" ", "T") + "Z";
-  }
+  str = str.replace(" ", "T");
 
   const parsed = new Date(str);
   return isNaN(parsed.getTime()) ? null : parsed;

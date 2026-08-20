@@ -35,6 +35,13 @@ def run_migrations():
                     if column not in columns:
                         conn.execute(text(f"ALTER TABLE appointments ADD COLUMN {column} INTEGER;"))
                         conn.commit()
+
+            if "clinics" in inspector.get_table_names():
+                conn.execute(text(
+                    "UPDATE clinics SET operating_hours = '09:00-23:59' "
+                    "WHERE name = 'KM Dental House' AND operating_hours = '12:00-23:59'"
+                ))
+                conn.commit()
     except Exception as e:
         print(f"Migration check notice: {e}")
 

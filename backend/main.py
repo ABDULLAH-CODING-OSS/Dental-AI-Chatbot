@@ -8,6 +8,7 @@ from app.api import chat, auth, appointments
 from app.models.models import User, ChatSession, ChatMessage, Appointment, LocalClinic
 
 from app.api import chat, auth, appointments, notifications, doctors, services
+from app import rag
 
 
 

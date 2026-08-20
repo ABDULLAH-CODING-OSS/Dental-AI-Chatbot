@@ -1,20 +1,53 @@
 ﻿import os
+import re
 from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictInt, StrictStr, ValidationError
 from typing import Optional, List
 from app.api.deps import get_current_user
 from app.data.database import get_db 
 from app.models.models import User, ChatSession, ChatMessage
 from app.models.models import Clinic, ClinicPricing, Doctor, Service, Appointment, Notification
-from app.core.scheduling import normalize_to_utc, time_overlaps
+from app.core.scheduling import is_in_the_past, is_within_ranges, parse_time_ranges, time_overlaps, utc_now_naive
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
 # Configurable daily message limit with generous default (100 messages/day)
 DAILY_MESSAGE_LIMIT = int(os.environ.get("DAILY_MESSAGE_LIMIT", "100"))
+BOOKING_INTENT = re.compile(
+    r"\b(book|booking|appointment|schedule|reserve|slot|available|availability|clinic|doctor|dentist)\b",
+    re.IGNORECASE,
+)
+
+
+class BookingToolArguments(BaseModel):
+    clinic_id: StrictInt
+    service_id: StrictInt
+    doctor_id: StrictInt
+    appointment_date: StrictStr
+    patient_name: StrictStr | None = None
+    patient_relation: StrictStr | None = None
+    patient_age: StrictInt | None = None
+    notes: StrictStr | None = None
+
+
+def _validated_booking_arguments(args: dict, booking_state: dict) -> dict:
+    validated = BookingToolArguments.model_validate(args)
+    values = validated.model_dump(exclude_none=True)
+    values["patient_name"] = values.get("patient_name") or booking_state["patient_name"]
+    values["patient_relation"] = values.get("patient_relation") or booking_state["relation"] or "Self"
+    if booking_state["patient_age"] is not None and "patient_age" not in values:
+        values["patient_age"] = booking_state["patient_age"]
+    return values
+
+
+def _parse_local_appointment_datetime(value: str) -> datetime:
+    appointment_date = datetime.fromisoformat(value)
+    if appointment_date.tzinfo is not None:
+        raise ValueError("Appointment times must not include a timezone offset.")
+    return appointment_date.replace(second=0, microsecond=0)
 
 
 def _next_available_slots(db: Session, doctor_id: int, requested: datetime, count: int = 3) -> list[datetime]:
@@ -32,6 +65,93 @@ def _next_available_slots(db: Session, doctor_id: int, requested: datetime, coun
             slots.append(candidate)
         candidate += timedelta(minutes=30)
     return slots
+
+
+def _booking_state(current_user: User, chat_history: list[dict]) -> dict:
+    state = {"patient_name": current_user.full_name, "patient_age": None, "relation": None}
+    history = " ".join(message.get("content", "") for message in chat_history)
+    age_match = re.search(
+        r"\b(?:age\s*(?:is|:)?|aged|I am|I'm)\s*(\d{1,3})\b|\b(\d{1,3})\s+years?\s+old\b",
+        history,
+        re.IGNORECASE,
+    )
+    if age_match:
+        state["patient_age"] = int(next(group for group in age_match.groups() if group is not None))
+    relation_match = re.search(r"\b(Self|Child|Spouse|Parent|Sibling|Partner|Friend)\b", history, re.IGNORECASE)
+    if relation_match:
+        state["relation"] = relation_match.group(1).capitalize()
+    return state
+
+
+def _needs_booking_tools(message: str, chat_history: list[dict]) -> bool:
+    recent_context = " ".join(item.get("content", "") for item in chat_history[-6:])
+    return bool(BOOKING_INTENT.search(f"{recent_context} {message}"))
+
+
+def _available_slots_for_date(db: Session, clinic: Clinic, doctor: Doctor, requested_date: date) -> list[str]:
+    try:
+        doctor_ranges = parse_time_ranges(doctor.slots, "doctor slots")
+        clinic_ranges = parse_time_ranges(clinic.operating_hours, "clinic hours")
+    except ValueError:
+        return []
+    slots = []
+    for minute in range(0, 24 * 60, 30):
+        candidate = datetime.combine(requested_date, datetime.min.time()) + timedelta(minutes=minute)
+        if is_in_the_past(candidate):
+            continue
+        if doctor_ranges and not is_within_ranges(candidate, doctor_ranges):
+            continue
+        if clinic_ranges and not is_within_ranges(candidate, clinic_ranges):
+            continue
+        if not any(time_overlaps(appointment.appointment_date, candidate) for appointment in db.query(Appointment).filter(
+            Appointment.clinic_id == clinic.id,
+            Appointment.doctor_id == doctor.id,
+            Appointment.appointment_date >= candidate.replace(hour=0, minute=0),
+            Appointment.appointment_date < candidate.replace(hour=0, minute=0) + timedelta(days=1),
+            Appointment.status.in_(["confirmed", "pending"]),
+        ).all()):
+            slots.append(candidate.strftime("%Y-%m-%dT%H:%M:%S"))
+    return slots
+
+
+def _availability_matches(chat_history: list[dict], doctor: Doctor, requested_date: date) -> bool:
+    expected_date = requested_date.strftime("%B %d, %Y")
+    latest_availability = next(
+        (
+            message.get("content", "")
+            for message in reversed(chat_history)
+            if message.get("role") == "assistant" and "Available slots for" in message.get("content", "")
+        ),
+        "",
+    )
+    return doctor.name.casefold() in latest_availability.casefold() and expected_date in latest_availability
+
+
+def _availability_is_current(message: str, chat_history: list[dict], doctors: list[Doctor]) -> bool:
+    if re.search(
+        r"\b(another|different|change|switch)\s+doctor\b|\b(today|tomorrow|day after tomorrow|next week)\b|\b\d{4}-\d{2}-\d{2}\b",
+        message,
+        re.IGNORECASE,
+    ):
+        return False
+
+    availability_messages = [
+        item.get("content", "")
+        for item in chat_history
+        if item.get("role") == "assistant" and "Available slots for" in item.get("content", "")
+    ]
+    if not availability_messages:
+        return False
+
+    latest_availability = availability_messages[-1]
+    mentioned_doctor = next(
+        (doctor for doctor in doctors if doctor.name.casefold() in message.casefold()),
+        None,
+    )
+    if mentioned_doctor and mentioned_doctor.name.casefold() not in latest_availability.casefold():
+        return False
+
+    return True
 
 class ChatRequest(BaseModel):
     message: str
@@ -168,7 +288,7 @@ def send_message(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from app.rag import BOOKING_TOOL, generate_answer, query_rag
+    from app.rag import BOOKING_TOOL, GET_AVAILABLE_SLOTS_TOOL, generate_answer, query_rag
 
     now_utc = datetime.utcnow()
     today = now_utc.date()
@@ -204,7 +324,7 @@ def send_message(
     # 1. Grab existing messages in this session and map them to role/content dicts for chat memory
     chat_history = []
     if chat_session and chat_session.messages:
-        for msg in chat_session.messages:
+        for msg in chat_session.messages[-12:]:
             role = "user" if msg.sender == "user" else "assistant"
             chat_history.append({"role": role, "content": msg.content})
 
@@ -226,30 +346,46 @@ def send_message(
     # db.commit()
 
     # return ChatResponse(answer=answer, context=context, session_id=chat_session.id)
-    doctors = db.query(Doctor).all()
-    clinics = db.query(Clinic).all()
-    services = db.query(Service).all()
-    clinic_list_text = "\n".join(
-        f"{clinic.id}. {clinic.name} | Location: {clinic.address} | Hours: {clinic.operating_hours or 'Not specified'}"
-        for clinic in clinics
-    ) or "No clinics available at the moment."
-    service_list_text = "\n".join(
-        f"{service.id}. {service.name} | Base price: ${service.base_price:.2f}"
-        for service in services
-    ) or "No services available at the moment."
-    doctor_list_text = "\n".join(
-        f"{doctor.id}. {doctor.name} ({doctor.specialty}) | Fee: ${doctor.consultation_fee:.2f} | Slots: {doctor.slots or 'Not specified'}"
-        for doctor in doctors
-    ) or "No doctors available at the moment."
-    
     context = query_rag(request.message)
-    context = (
-        f"AVAILABLE CLINICS:\n{clinic_list_text}\n\n"
-        f"AVAILABLE SERVICES:\n{service_list_text}\n\n"
-        f"AVAILABLE DOCTORS AT SELECTED CLINIC:\n{doctor_list_text}\n\n"
-        f"{context}"
+    booking_request = _needs_booking_tools(request.message, chat_history)
+    booking_state = _booking_state(current_user, chat_history)
+    if booking_request:
+        doctors = db.query(Doctor).all()
+        clinics = db.query(Clinic).all()
+        services = db.query(Service).all()
+        clinic_list_text = "\n".join(
+            f"{clinic.id}. {clinic.name} | Location: {clinic.address} | Hours: {clinic.operating_hours or 'Not specified'}"
+            for clinic in clinics
+        ) or "No clinics available at the moment."
+        service_list_text = "\n".join(
+            f"{service.id}. {service.name} | Base price: ${service.base_price:.2f}"
+            for service in services
+        ) or "No services available at the moment."
+        doctor_list_text = "\n".join(
+            f"{doctor.id}. {doctor.name} ({doctor.specialty}) | Fee: ${doctor.consultation_fee:.2f} | Slots: {doctor.slots or 'Not specified'}"
+            for doctor in doctors
+        ) or "No doctors available at the moment."
+        context = (
+            f"CURRENT DATE: {today.isoformat()} (use this for today/tomorrow references)\n\n"
+            f"AVAILABLE CLINICS:\n{clinic_list_text}\n\n"
+            f"AVAILABLE SERVICES:\n{service_list_text}\n\n"
+            f"AVAILABLE DOCTORS AT SELECTED CLINIC:\n{doctor_list_text}\n\n"
+            f"BOOKING STATE (do not ask again for non-null values):\n{booking_state}\n\n"
+            f"{context}"
+        )
+        tools = [GET_AVAILABLE_SLOTS_TOOL, BOOKING_TOOL]
+    else:
+        tools = None
+    tool_choice = "auto"
+    if booking_request and _availability_is_current(request.message, chat_history, doctors):
+        tool_choice = {"type": "function", "function": {"name": "book_appointment"}}
+    llm_message = generate_answer(
+        request.message,
+        context,
+        chat_history=chat_history,
+        tools=tools,
+        tool_choice=tool_choice,
     )
-    llm_message = generate_answer(request.message, context, chat_history=chat_history, tools=[BOOKING_TOOL])
 
     receipt = None
     if llm_message.tool_calls:
@@ -257,13 +393,69 @@ def send_message(
         tool_call = llm_message.tool_calls[0]
         args = json.loads(tool_call.function.arguments)
 
+        if tool_call.function.name == "get_available_slots":
+            requested_date = date.fromisoformat(args["appointment_date"])
+            clinic = db.query(Clinic).filter(Clinic.id == args.get("clinic_id")).first()
+            doctor = db.query(Doctor).filter(Doctor.id == args.get("doctor_id")).first()
+            if clinic is None or doctor is None:
+                answer = "I couldn't find that clinic or doctor. Please choose from the available options."
+            else:
+                slots = _available_slots_for_date(db, clinic, doctor, requested_date)
+                answer = (
+                    f"Available slots for {doctor.name} on {requested_date.strftime('%B %d, %Y')}:\n" +
+                    "\n".join(f"- {datetime.fromisoformat(slot).strftime('%I:%M %p').lstrip('0')}" for slot in slots)
+                    if slots else f"There are no available slots for {doctor.name} on {requested_date.strftime('%B %d, %Y')}."
+                )
+            assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer, timestamp=datetime.utcnow())
+            db.add(assistant_msg)
+            chat_session.updated_at = datetime.utcnow()
+            db.commit()
+            return ChatResponse(answer=answer, context=context, session_id=chat_session.id, receipt=None)
+
+        try:
+            args = _validated_booking_arguments(args, booking_state)
+        except ValidationError:
+            answer = "I couldn't process the booking details. Please provide the clinic, service, doctor, and appointment time again."
+            assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer, timestamp=datetime.utcnow())
+            db.add(assistant_msg)
+            chat_session.updated_at = datetime.utcnow()
+            db.commit()
+            return ChatResponse(answer=answer, context=context, session_id=chat_session.id, receipt=None)
+
         clinic = db.query(Clinic).filter(Clinic.id == args.get("clinic_id")).first()
         service = db.query(Service).filter(Service.id == args.get("service_id")).first()
         doctor = db.query(Doctor).filter(Doctor.id == args.get("doctor_id")).first()
         if clinic is None or service is None or doctor is None:
             answer = "I couldn't find that clinic, service, or doctor — could you pick from the available options again?"
         else:
-            requested_date = normalize_to_utc(datetime.fromisoformat(args["appointment_date"]))
+            try:
+                requested_date = _parse_local_appointment_datetime(args["appointment_date"])
+            except (TypeError, ValueError):
+                answer = "Please choose an available appointment time using the clinic's local date and time, without a timezone."
+                assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer, timestamp=datetime.utcnow())
+                db.add(assistant_msg)
+                chat_session.updated_at = datetime.utcnow()
+                db.commit()
+                return ChatResponse(answer=answer, context=context, session_id=chat_session.id, receipt=None)
+            if not _availability_matches(chat_history, doctor, requested_date.date()):
+                answer = f"I need to check {doctor.name} availability for {requested_date.strftime('%B %d, %Y')} first."
+                assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer, timestamp=datetime.utcnow())
+                db.add(assistant_msg)
+                chat_session.updated_at = datetime.utcnow()
+                db.commit()
+                return ChatResponse(answer=answer, context=context, session_id=chat_session.id, receipt=None)
+            available_slots = _available_slots_for_date(db, clinic, doctor, requested_date.date())
+            requested_slot = requested_date.strftime("%Y-%m-%dT%H:%M:%S")
+            if requested_slot not in available_slots:
+                answer = (
+                    f"The {requested_date.strftime('%I:%M %p').lstrip('0')} slot was unavailable. "
+                    "Please choose one of the available slots returned by the availability check."
+                )
+                assistant_msg = ChatMessage(session_id=chat_session.id, sender="assistant", content=answer, timestamp=datetime.utcnow())
+                db.add(assistant_msg)
+                chat_session.updated_at = datetime.utcnow()
+                db.commit()
+                return ChatResponse(answer=answer, context=context, session_id=chat_session.id, receipt=None)
             service_price = service.base_price
             pricing_override = db.query(ClinicPricing).filter(
                 ClinicPricing.clinic_id == clinic.id,
@@ -300,9 +492,9 @@ def send_message(
                     clinic_id=clinic.id,
                     service_id=service.id,
                     dentist_name=doctor.name,
-                    patient_name=args.get("patient_name") or current_user.full_name,
-                    patient_relation=args.get("patient_relation", "Self"),
-                    patient_age=args.get("patient_age"),
+                    patient_name=args.get("patient_name") or booking_state["patient_name"],
+                    patient_relation=args.get("patient_relation") or booking_state["relation"] or "Self",
+                    patient_age=args.get("patient_age") or booking_state["patient_age"],
                     appointment_date=requested_date,
                     price=service_price,
                     notes=args.get("notes"),

@@ -209,7 +209,7 @@ export default function AdminAppointmentsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-6">
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
               Clinical Appointment Requests
             </h1>
             {counts.pending > 0 && (

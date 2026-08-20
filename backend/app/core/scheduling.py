@@ -13,6 +13,15 @@ def normalize_to_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def utc_now_naive() -> datetime:
+    """Return the current UTC time in the naive form used by the database."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def is_in_the_past(value: datetime) -> bool:
+    return normalize_to_utc(value) <= utc_now_naive()
+
+
 def time_overlaps(first_start: datetime, second_start: datetime) -> bool:
     """Treat each appointment as a 30-minute window and test for overlap."""
     first_end = first_start + APPOINTMENT_DURATION

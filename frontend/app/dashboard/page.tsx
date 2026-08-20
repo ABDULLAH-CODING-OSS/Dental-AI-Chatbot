@@ -1,10 +1,10 @@
 "use client";
 
-import { memo, useCallback, useState, useRef, useEffect, Suspense } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Stethoscope, 
-  Send, 
+import { forwardRef, memo, useCallback, useImperativeHandle, useState, useRef, useEffect, Suspense } from "react";
+import { motion } from "framer-motion";
+import {
+  Stethoscope,
+  Send,
   AlertCircle, 
   FileText, 
   ChevronDown, 
@@ -38,23 +38,90 @@ type Message = {
 
 type MessageItemProps = {
   msg: Message;
-  formattedContent: string;
 };
 
-const MessageItem = memo(function MessageItem({ msg, formattedContent }: MessageItemProps) {
-  return (
-    <div className="flex gap-4">
-      {msg.role === "ai" && (
-        <div className={`w-11 h-11 rounded-2xl shrink-0 flex items-center justify-center text-white shadow-sm mt-1 ${
-          msg.isRateLimit ? "bg-amber-600" : msg.isError ? "bg-red-500" : "bg-emerald-600"
-        }`}>
-          {msg.isRateLimit ? <AlertTriangle size={22} /> : <Stethoscope size={22} />}
-        </div>
-      )}
+function prepareMarkdown(content: string): string {
+  const normalized = content.replace(/<br\s*\/?>(?!\n)/gi, "\n");
+  const codeFenceCount = (normalized.match(/```/g) || []).length;
+  return codeFenceCount % 2 === 0 ? normalized : `${normalized}\n\n\`\`\``;
+}
 
+function stableMessageKey(sessionId: string, message: { sender: string; content: string; timestamp?: string }, occurrence: number): string {
+  const source = `${sessionId}|${message.sender}|${message.timestamp || ""}|${message.content}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `loaded_${sessionId}_${(hash >>> 0).toString(36)}_${occurrence}`;
+}
+
+export function useThrottledStream() {
+  const [currentStream, setCurrentStream] = useState("");
+  const pendingRef = useRef("");
+  const frameRef = useRef<number | null>(null);
+
+  const flush = useCallback(() => {
+    frameRef.current = null;
+    setCurrentStream(pendingRef.current);
+  }, []);
+
+  const appendChunk = useCallback((chunk: string) => {
+    pendingRef.current += chunk;
+    if (frameRef.current === null) {
+      frameRef.current = requestAnimationFrame(flush);
+    }
+  }, [flush]);
+
+  const reset = useCallback(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+    pendingRef.current = "";
+    setCurrentStream("");
+  }, []);
+
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+  }, []);
+
+  return { currentStream, appendChunk, reset };
+}
+
+type MarkdownContentProps = { content: string };
+
+const MarkdownContent = memo(function MarkdownContent({ content }: MarkdownContentProps) {
+  return (
+    <div className="chat-message-content prose prose-slate max-w-none text-slate-800">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ ...props }) => <h1 className="text-2xl font-semibold text-slate-900 mt-4 mb-2" {...props} />,
+          h2: ({ ...props }) => <h2 className="text-xl font-semibold text-slate-900 mt-3 mb-2" {...props} />,
+          h3: ({ ...props }) => <h3 className="text-lg font-semibold text-slate-900 mt-2 mb-1" {...props} />,
+          table: ({ ...props }) => <div className="my-4 w-full overflow-x-auto rounded-2xl border border-slate-200"><table className="w-full text-left text-sm border-collapse" {...props} /></div>,
+          thead: ({ ...props }) => <thead className="bg-slate-100 border-b border-slate-200 text-slate-900 font-semibold uppercase text-xs tracking-wider" {...props} />,
+          tbody: ({ ...props }) => <tbody className="divide-y divide-slate-100 bg-white text-slate-700" {...props} />,
+          th: ({ ...props }) => <th className="px-4 py-3 font-semibold text-slate-800 border-r border-slate-200 last:border-r-0" {...props} />,
+          td: ({ ...props }) => <td className="px-4 py-3 align-top text-slate-600 border-r border-slate-100 last:border-r-0" {...props} />,
+        }}
+      >
+        {prepareMarkdown(content)}
+      </ReactMarkdown>
+    </div>
+  );
+});
+
+export const StaticMessageBubble = memo(function StaticMessageBubble({
+  msg,
+}: MessageItemProps) {
+  return (
+    <div className={`flex gap-4 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
+      {msg.role === "ai" && <div className={`w-11 h-11 rounded-2xl shrink-0 flex items-center justify-center text-white shadow-sm mt-1 ${msg.isRateLimit ? "bg-amber-600" : msg.isError ? "bg-red-500" : "bg-emerald-600"}`}>
+        {msg.isRateLimit ? <AlertTriangle size={22} /> : <Stethoscope size={22} />}
+      </div>}
       <div className={`flex flex-col gap-2.5 min-w-0 ${msg.role === "user" ? "items-end" : "items-start"}`}>
         <div className={`
-          p-5 sm:p-6 rounded-3xl text-base leading-relaxed shadow-sm font-normal
+          chat-message-content p-5 sm:p-6 rounded-3xl text-base shadow-sm font-normal
           ${msg.role === "user"
             ? "bg-linear-to-br from-emerald-600 to-teal-700 text-white rounded-tr-sm shadow-[0_4px_16px_rgb(5,150,105,0.22)]"
             : msg.isRateLimit
@@ -66,20 +133,71 @@ const MessageItem = memo(function MessageItem({ msg, formattedContent }: Message
         `}>
           {msg.isRateLimit ? <AlertTriangle size={22} className="shrink-0 text-amber-600 mt-0.5" /> : null}
           {msg.isError ? <AlertCircle size={22} className="shrink-0 text-red-500" /> : null}
-          {msg.role === "user" ? (
-            <span className="whitespace-pre-wrap font-medium text-base leading-relaxed tracking-normal">{msg.content}</span>
-          ) : msg.isError || msg.isRateLimit ? (
-            <span className="whitespace-pre-wrap text-base">{msg.content}</span>
-          ) : (
-            <div className="prose prose-slate max-w-none text-slate-800 text-base leading-relaxed prose-p:my-2.5 prose-p:leading-relaxed prose-p:first:mt-0 prose-p:last:mb-0 prose-strong:font-bold prose-strong:text-slate-900 prose-ul:my-2.5 prose-ul:list-disc prose-ul:pl-6 prose-ol:my-2.5 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-1 prose-headings:font-bold prose-headings:text-slate-900 prose-headings:my-3">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{formattedContent}</ReactMarkdown>
-            </div>
-          )}
+          {msg.role === "user" ? <span className="whitespace-pre-wrap">{msg.content}</span> : msg.isError || msg.isRateLimit ? <span className="whitespace-pre-wrap">{msg.content}</span> : <MarkdownContent content={msg.content} />}
         </div>
       </div>
     </div>
   );
 });
+
+export const ActiveStreamBubble = memo(function ActiveStreamBubble({ content }: { content: string }) {
+  return <div className="flex gap-4 max-w-[90%] md:max-w-[85%]">
+    <div className="w-11 h-11 rounded-2xl shrink-0 flex items-center justify-center text-white bg-emerald-600 shadow-sm mt-1"><Stethoscope size={22} /></div>
+    <div className="chat-message-content p-5 sm:p-6 rounded-3xl rounded-tl-sm bg-white border border-slate-200 text-base shadow-xs min-w-0"><MarkdownContent content={content || " "} /></div>
+  </div>;
+});
+
+export type ChatComposerHandle = { edit: (content: string) => void };
+
+const ChatComposer = forwardRef<ChatComposerHandle, {
+  disabled: boolean;
+  onSend: (content: string) => void;
+}>(({ disabled, onSend }, ref) => {
+  const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    edit(content: string) {
+      setDraft(content);
+      window.setTimeout(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(content.length, content.length);
+      }, 0);
+    },
+  }), []);
+
+  const submit = () => {
+    const content = draft.trim();
+    if (!content || disabled) return;
+    setDraft("");
+    onSend(content);
+  };
+
+  return (
+    <div className="relative bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-200 focus-within:ring-4 focus-within:ring-emerald-500/20 focus-within:border-emerald-500 transition-all duration-300 flex items-end overflow-hidden">
+      <Textarea
+        ref={textareaRef}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            submit();
+          }
+        }}
+        placeholder="Ask Denova anything about dental symptoms, treatments, or care..."
+        className="min-h-19 max-h-55 border-0 focus-visible:ring-0 resize-none py-5 px-6 text-base font-medium text-slate-900 bg-transparent placeholder:text-slate-400"
+        disabled={disabled}
+      />
+      <div className="p-3 shrink-0">
+        <Button onClick={submit} disabled={!draft.trim() || disabled} size="icon" className="h-12 w-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-colors cursor-pointer">
+          <Send size={20} />
+        </Button>
+      </div>
+    </div>
+  );
+});
+ChatComposer.displayName = "ChatComposer";
 
 function DashboardChatContent() {
   const router = useRouter();
@@ -95,34 +213,33 @@ function DashboardChatContent() {
       content: "Hello! I'm Denova, your AI dental assistant. How can I help you with your oral health and smile today?",
     }
   ]);
-  const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
   const [displayedCount, setDisplayedCount] = useState(20);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const { currentStream, appendChunk, reset: resetStream } = useThrottledStream();
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composerRef = useRef<ChatComposerHandle>(null);
+  const scrollFrameRef = useRef<number | null>(null);
 
   const scrollToBottom = useCallback((targetId?: string, behavior: ScrollBehavior = "smooth") => {
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
     }
-
-    scrollTimeoutRef.current = setTimeout(() => {
+    scrollFrameRef.current = requestAnimationFrame(() => {
       const target = targetId ? document.getElementById(`msg-${targetId}`) : messagesEndRef.current;
       target?.scrollIntoView({ behavior, block: targetId ? "start" : "nearest" });
-      scrollTimeoutRef.current = null;
-    }, 500);
+      scrollFrameRef.current = null;
+    });
   }, []);
 
   useEffect(() => {
     return () => {
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
       }
     };
   }, []);
@@ -151,6 +268,7 @@ function DashboardChatContent() {
     }
 
     let isMounted = true;
+    const loadedSessionId = sessionQuery;
     async function loadSessionMessages() {
       setLoadingSession(true);
       setDisplayedCount(20);
@@ -164,12 +282,18 @@ function DashboardChatContent() {
         });
 
         if (isMounted && Array.isArray(res.data)) {
-          const loaded: Message[] = res.data.map((m: { sender: string; content: string; timestamp?: string }, idx: number) => ({
-            id: `loaded_${sessionQuery}_${idx}`,
+          const occurrences = new Map<string, number>();
+          const loaded: Message[] = res.data.map((m: { id?: number; sender: string; content: string; timestamp?: string }) => {
+            const sourceKey = `${m.sender}|${m.timestamp || ""}|${m.content}`;
+            const occurrence = occurrences.get(sourceKey) || 0;
+            occurrences.set(sourceKey, occurrence + 1);
+            return {
+            id: m.id ? `loaded_${loadedSessionId}_${m.id}` : stableMessageKey(loadedSessionId, m, occurrence),
             role: m.sender === "user" ? "user" : "ai",
             content: m.content,
             timestamp: m.timestamp,
-          }));
+            };
+          });
           setMessages(loaded.length > 0 ? loaded : [{
             id: "empty_session",
             role: "ai",
@@ -226,14 +350,7 @@ function DashboardChatContent() {
   }, []);
 
   const handleEditUserMessage = useCallback((content: string) => {
-    setInput(content);
-    setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-        const len = content.length;
-        textareaRef.current.setSelectionRange(len, len);
-      }
-    }, 50);
+    composerRef.current?.edit(content);
   }, []);
 
   const handleLoadMore = () => {
@@ -242,8 +359,7 @@ function DashboardChatContent() {
 
   const visibleMessages = messages.slice(-displayedCount);
 
-  const handleSend = async () => {
-    const trimmedInput = input.trim();
+  const handleSend = async (trimmedInput: string) => {
     if (!trimmedInput || isTyping) return;
 
     if (!token) {
@@ -259,8 +375,8 @@ function DashboardChatContent() {
     };
     
     setMessages(prev => [...prev, userMsg]);
-    setInput("");
     setIsTyping(true);
+    resetStream();
 
     // Smoothly scroll down to reveal the user message and thinking indicator
     scrollToBottom();
@@ -309,7 +425,9 @@ function DashboardChatContent() {
         sources: sourceChunks.length > 0 ? sourceChunks : undefined
       };
 
+      appendChunk(aiMsg.content);
       setMessages(prev => [...prev, aiMsg]);
+      window.setTimeout(resetStream, 32);
 
       // FIX AUTO-SCROLL: Anchor to the top of Denova's newly generated response
       // so the user sees the start/top of the response first, rather than jumping to the bottom!
@@ -334,6 +452,7 @@ function DashboardChatContent() {
             isError: true,
             isRateLimit: true
           }]);
+          resetStream();
 
           scrollToBottom(errorId);
           return;
@@ -356,17 +475,11 @@ function DashboardChatContent() {
         isError: true
       };
       setMessages(prev => [...prev, errorMsg]);
+      resetStream();
 
       scrollToBottom(errorId);
     } finally {
       setIsTyping(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
     }
   };
 
@@ -384,7 +497,7 @@ function DashboardChatContent() {
               <span className="text-base font-semibold text-slate-500">Loading consultation messages...</span>
             </div>
           ) : (
-            <AnimatePresence initial={false}>
+            <div className="contents">
               {displayedCount < messages.length && (
                 <div className="flex justify-center">
                   <Button
@@ -403,16 +516,14 @@ function DashboardChatContent() {
                   : "";
 
                 return (
-                  <motion.div
+                  <div
                     key={msg.id}
                     id={`msg-${msg.id}`}
-                    initial={{ opacity: 0, y: 15 }}
-                    animate={{ opacity: 1, y: 0 }}
                     className={`scroll-mt-6 flex flex-col gap-4 max-w-[90%] md:max-w-[85%] ${
                       msg.role === "user" ? "ml-auto flex-row-reverse" : ""
                     }`}
                   >
-                    <MessageItem msg={msg} formattedContent={formattedContent} />
+                    <StaticMessageBubble msg={msg} />
 
                       {/* Action Bar: Copy Response for Assistant, Edit Query for User */}
                       <div className="flex items-center gap-2 px-1">
@@ -493,12 +604,13 @@ function DashboardChatContent() {
                           )}
                         </div>
                       )}
-                  </motion.div>
+                  </div>
                 );
               })}
-            
+              {currentStream && <ActiveStreamBubble content={currentStream} />}
+
               {/* Thinking State */}
-              {isTyping && (
+              {isTyping && !currentStream && (
                 <motion.div
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -520,7 +632,7 @@ function DashboardChatContent() {
                   </div>
                 </motion.div>
               )}
-            </AnimatePresence>
+            </div>
           )}
           <div ref={messagesEndRef} className="h-6" />
         </div>
@@ -529,29 +641,7 @@ function DashboardChatContent() {
       {/* Input Area */}
       <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-slate-50 via-slate-50/95 to-transparent pt-16 pb-7 px-4 pointer-events-none">
         <div className="max-w-4xl mx-auto relative pointer-events-auto">
-          <div className="relative bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] border border-slate-200 focus-within:ring-4 focus-within:ring-emerald-500/20 focus-within:border-emerald-500 transition-all duration-300 flex items-end overflow-hidden">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask Denova anything about dental symptoms, treatments, or care..."
-              className="min-h-19 max-h-55 border-0 focus-visible:ring-0 resize-none py-5 px-6 text-base font-medium text-slate-900 bg-transparent placeholder:text-slate-400"
-              disabled={isTyping || loadingSession}
-            />
-            <div className="p-3 shrink-0">
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button 
-                  onClick={handleSend}
-                  disabled={!input.trim() || isTyping || loadingSession}
-                  size="icon"
-                  className="h-12 w-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
-                >
-                  <Send size={20} className={input.trim() && !isTyping ? "ml-0.5" : ""} />
-                </Button>
-              </motion.div>
-            </div>
-          </div>
+          <ChatComposer ref={composerRef} onSend={handleSend} disabled={isTyping || loadingSession} />
           <div className="text-center mt-3">
             <span className="text-xs font-semibold text-slate-400">Denova AI provides clinical dental information. Always consult a licensed dentist for emergencies or formal diagnoses.</span>
           </div>

@@ -62,7 +62,7 @@ export default function AdminServicesPage() {
 
   return <div className="space-y-8 pb-16">
     <header className="flex items-center justify-between border-b border-slate-200 pb-6">
-      <div><h1 className="text-3xl font-extrabold text-slate-900">Services</h1><p className="mt-1 text-slate-600">Manage the dental services offered through booking.</p></div>
+      <div><h1 className="text-2xl font-semibold text-slate-900">Services</h1><p className="mt-1 text-slate-600">Manage the dental services offered through booking.</p></div>
       <Button variant="outline" onClick={load} disabled={loading}><RefreshCw size={15} className="mr-2" />Refresh</Button>
     </header>
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-800">{error}</div>}
