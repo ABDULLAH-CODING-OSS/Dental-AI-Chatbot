@@ -86,8 +86,8 @@ def _booking_state(current_user: User, chat_history: list[dict]) -> dict:
     return state
 
 def _needs_booking_tools(message: str, chat_history: list[dict]) -> bool:
-    full_context = " ".join(item.get("content", "") for item in chat_history)
-    return bool(BOOKING_INTENT.search(f"{full_context} {message}"))
+    recent_context = " ".join(item.get("content", "") for item in chat_history[-20:])
+    return bool(BOOKING_INTENT.search(f"{recent_context} {message}"))
 
 def _available_slots_for_date(db: Session, clinic: Clinic, doctor: Doctor, requested_date: date) -> list[str]:
     try:
@@ -348,20 +348,21 @@ def send_message(
         doctors = db.query(Doctor).all()
         clinics = db.query(Clinic).all()
         services = db.query(Service).all()
-
+        
         clinic_list_text = "\n".join(
-            f"{clinic.id}. {clinic.name} | Location: {clinic.address} | Hours: {clinic.operating_hours or 'Not specified'}"
-            for clinic in clinics
+        f"{clinic.id}. {clinic.name} | Location: {clinic.address} | Hours: {clinic.operating_hours or 'Not specified'}"
+        for clinic in clinics
         ) or "No clinics available at the moment."
         service_list_text = "\n".join(
-            f"{service.id}. {service.name} | Base price: ${service.base_price:.2f}"
-            for service in services
-        ) or "No services available at the moment."
+       f"{service.id}. {service.name} | Base Price: ${service.base_price:.2f}"
+        for service in services
+       ) or "No services available at the moment."
         doctor_list_text = "\n".join(
-            f"{doctor.id}. {doctor.name} ({doctor.specialty}) | Fee: ${doctor.consultation_fee:.2f} | Slots: {doctor.slots or 'Not specified'}"
-            for doctor in doctors
-        ) or "No doctors available at the moment."
+       f"{doctor.id}. {doctor.name} ({doctor.specialty}) | Consultation Fee: ${doctor.consultation_fee:.2f} | Available Hours: {doctor.slots or 'Not specified'}"
+       for doctor in doctors
+       ) or "No doctors available at the moment."
 
+   
         context = (
             f"CURRENT DATE: {today.isoformat()} (use this for today/tomorrow references)\n\n"
             f"AVAILABLE CLINICS:\n{clinic_list_text}\n\n"
@@ -378,7 +379,7 @@ def send_message(
         # Once we know availability was just confirmed for this doctor/date, force a booking attempt
         if _availability_is_current(request.message, chat_history, doctors):
             tools = [BOOKING_TOOL]
-            tool_choice = "required"
+            tool_choice = "auto"
 
     llm_message = generate_answer(
         request.message,
@@ -396,7 +397,7 @@ def send_message(
         args = json.loads(tool_call.function.arguments)
 
         # --- get_available_slots ---
-                if tool_call.function.name == "get_available_slots":
+        if tool_call.function.name == "get_available_slots":
             clinic_id = args.get("clinic_id")
             doctor_id = args.get("doctor_id")
             appointment_date_str = args.get("appointment_date")

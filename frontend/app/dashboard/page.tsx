@@ -355,10 +355,10 @@ function DashboardChatContent() {
     composerRef.current?.edit(content);
   }, []);
 
-  const handleSlotSelect = useCallback((slot: string) => {
-    // Send the selected slot as a message
-    handleSend(slot);
-  }, []);
+ const handleSlotSelect = useCallback((slot: string) => {
+  // Send the selected slot as a message
+  handleSend(slot);
+}, [currentSessionId]);
 
   const handleLoadMore = () => {
     setDisplayedCount(prev => prev + 20);
@@ -372,7 +372,9 @@ function DashboardChatContent() {
     if (!token) {
       router.push("/login");
       return;
+      
     }
+    console.log("DEBUG: currentSessionId =", currentSessionId, "type:", typeof currentSessionId);
     
     const userMsgId = `user_${Date.now()}`;
     const userMsg: Message = { 
