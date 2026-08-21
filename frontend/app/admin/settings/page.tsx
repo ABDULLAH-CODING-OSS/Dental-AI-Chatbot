@@ -14,21 +14,21 @@ const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:80
 
 type Settings = {
   daily_message_limit: number;
-  clinical_disclaimer: boolean;
-  emergency_triage: boolean;
+  clinical_disclaimer_enabled: boolean;
+  emergency_triage_enabled: boolean;
 };
 
 const defaultSettings: Settings = {
   daily_message_limit: 100,
-  clinical_disclaimer: true,
-  emergency_triage: true,
+  clinical_disclaimer_enabled: true,
+  emergency_triage_enabled: true,
 };
 
 function normalizeSettings(value: Record<string, unknown>): Settings {
   return {
     daily_message_limit: Number(value.daily_message_limit ?? value.dailyMessageLimit ?? defaultSettings.daily_message_limit),
-    clinical_disclaimer: Boolean(value.clinical_disclaimer ?? value.clinical_disclaimer_enforced ?? value.clinicalDisclaimer ?? defaultSettings.clinical_disclaimer),
-    emergency_triage: Boolean(value.emergency_triage ?? value.emergency_triage_auto_escalate ?? value.emergencyTriage ?? defaultSettings.emergency_triage),
+    clinical_disclaimer_enabled: Boolean(value.clinical_disclaimer_enabled ?? defaultSettings.clinical_disclaimer_enabled),
+    emergency_triage_enabled: Boolean(value.emergency_triage_enabled ?? defaultSettings.emergency_triage_enabled),
   };
 }
 
@@ -82,8 +82,8 @@ export default function AdminSettingsPage() {
     setSuccessMessage(null);
     const changedFields: Partial<Settings> = {};
     if (settings.daily_message_limit !== savedSettings.daily_message_limit) changedFields.daily_message_limit = settings.daily_message_limit;
-    if (settings.clinical_disclaimer !== savedSettings.clinical_disclaimer) changedFields.clinical_disclaimer = settings.clinical_disclaimer;
-    if (settings.emergency_triage !== savedSettings.emergency_triage) changedFields.emergency_triage = settings.emergency_triage;
+    if (settings.clinical_disclaimer_enabled !== savedSettings.clinical_disclaimer_enabled) changedFields.clinical_disclaimer_enabled = settings.clinical_disclaimer_enabled;
+    if (settings.emergency_triage_enabled !== savedSettings.emergency_triage_enabled) changedFields.emergency_triage_enabled = settings.emergency_triage_enabled;
 
     try {
       const response = await axios.patch(`${BACKEND_BASE_URL}/api/admin/settings/`, changedFields, {
@@ -127,8 +127,8 @@ export default function AdminSettingsPage() {
               <Label htmlFor="daily-message-limit">Daily Message Limit</Label>
               <Input id="daily-message-limit" type="number" min={1} value={settings.daily_message_limit} disabled={loading || saving} onChange={(event) => setSettings((current) => ({ ...current, daily_message_limit: Number(event.target.value) }))} />
             </div>
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4"><div><p className="font-medium text-slate-900">Clinical Disclaimer</p><p className="text-sm text-slate-500">Automatically included in every clinical response.</p></div><Switch checked={settings.clinical_disclaimer} disabled={loading || saving} onCheckedChange={(checked) => setSettings((current) => ({ ...current, clinical_disclaimer: checked }))} /></div>
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4"><div><p className="font-medium text-slate-900">Emergency Triage</p><p className="text-sm text-slate-500">Helps identify urgent symptoms that may need immediate care.</p></div><Switch checked={settings.emergency_triage} disabled={loading || saving} onCheckedChange={(checked) => setSettings((current) => ({ ...current, emergency_triage: checked }))} /></div>
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4"><div><p className="font-medium text-slate-900">Clinical Disclaimer</p><p className="text-sm text-slate-500">Automatically included in every clinical response.</p></div><Switch checked={settings.clinical_disclaimer_enabled} disabled={loading || saving} onCheckedChange={(checked) => setSettings((current) => ({ ...current, clinical_disclaimer_enabled: checked }))} /></div>
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4"><div><p className="font-medium text-slate-900">Emergency Triage</p><p className="text-sm text-slate-500">Helps identify urgent symptoms that may need immediate care.</p></div><Switch checked={settings.emergency_triage_enabled} disabled={loading || saving} onCheckedChange={(checked) => setSettings((current) => ({ ...current, emergency_triage_enabled: checked }))} /></div>
           </div>
         </div>
 

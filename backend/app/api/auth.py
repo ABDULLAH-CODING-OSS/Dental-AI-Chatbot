@@ -21,6 +21,11 @@ class LoginRequest(BaseModel):
     admin_login: bool = False  # frontend "Login as Admin" checkbox — NOT trusted alone
 
 
+class PasswordUpdateRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -80,3 +85,21 @@ def get_current_user_data(current_user: User = Depends(get_current_user)):
         "full_name": full_name,
         "email": current_user.email
     }
+
+
+@router.patch("/me")
+def update_password(
+    request: PasswordUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(request.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    if request.current_password == request.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from the current password.")
+    if len(request.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters long.")
+
+    current_user.hashed_password = hash_password(request.new_password)
+    db.commit()
+    return {"message": "Password updated successfully."}

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.data.database import get_db
 from app.models.models import ChatSession, ChatMessage, User
 from app.api.deps import get_current_admin
@@ -54,3 +54,21 @@ def chat_stats(db: Session = Depends(get_db), _admin=Depends(get_current_admin))
     today = datetime.utcnow().date()
     active_today = db.query(ChatSession).filter(func.date(ChatSession.updated_at) == today).count()
     return {"total_sessions": total_sessions, "total_messages": total_messages, "active_chats_today": active_today}
+
+
+@router.get("/daily-volume")
+def daily_volume(days: int = 30, db: Session = Depends(get_db), _admin=Depends(get_current_admin)):
+    days = max(1, min(days, 90))
+    start_date = datetime.utcnow().date() - timedelta(days=days - 1)
+    rows = (
+        db.query(func.date(ChatMessage.timestamp).label("date"), func.count(ChatMessage.id).label("count"))
+        .filter(ChatMessage.timestamp >= datetime.combine(start_date, datetime.min.time()))
+        .group_by(func.date(ChatMessage.timestamp))
+        .order_by(func.date(ChatMessage.timestamp))
+        .all()
+    )
+    counts = {str(row.date): int(row.count) for row in rows}
+    return [
+        {"date": (start_date + timedelta(days=offset)).isoformat(), "count": counts.get((start_date + timedelta(days=offset)).isoformat(), 0)}
+        for offset in range(days)
+    ]

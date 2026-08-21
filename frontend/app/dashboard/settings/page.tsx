@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import axios from "axios";
 import { 
   User, 
   Lock, 
@@ -40,7 +41,7 @@ const itemVariants = {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, fullName, logout } = useAuth();
+  const { user, fullName, token, logout } = useAuth();
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -90,7 +91,7 @@ export default function SettingsPage() {
     showNotification("Profile editing coming soon.");
   };
 
-  const handleUpdatePassword = (e: React.FormEvent) => {
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError(null);
 
@@ -104,13 +105,40 @@ export default function SettingsPage() {
       return;
     }
 
+    if (passwords.currentPassword === passwords.newPassword) {
+      setPasswordError("New password must be different from the current password.");
+      return;
+    }
+
     if (passwords.newPassword !== passwords.confirmPassword) {
       setPasswordError("New password and confirmation do not match.");
       return;
     }
 
-    setPasswords({ currentPassword: "", newPassword: "", confirmPassword: "" });
-    showNotification("Password changed successfully.");
+    if (!token) {
+      showNotification("Please sign in again before changing your password.");
+      return;
+    }
+
+    try {
+      await axios.patch("http://127.0.0.1:8000/api/auth/me", {
+        current_password: passwords.currentPassword,
+        new_password: passwords.newPassword,
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 20000,
+      });
+      setPasswords({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      showNotification("Password updated successfully");
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        logout();
+        router.push("/login");
+        return;
+      }
+      const message = axios.isAxiosError(error) ? error.response?.data?.detail : null;
+      showNotification(typeof message === "string" ? message : "Unable to update password. Please try again.");
+    }
   };
 
   const handleDeleteAccount = () => {

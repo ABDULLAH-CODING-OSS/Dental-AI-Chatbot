@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarCheck, MessageSquare, MessageSquareText, Users } from "lucide-react";
+import { CalendarCheck, Loader2, MessageSquare, MessageSquareText, Users } from "lucide-react";
 import axios from "axios";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 type TimeRange = "7d" | "30d" | "90d";
 type Appointment = { id: number; user_id?: number | null; appointment_date: string; status: string };
-type DailyVolume = { date: string; message_count: number };
+type DailyVolume = { date: string; count: number };
 
 function dateRangeStart(range: TimeRange): number {
   const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
@@ -32,6 +32,7 @@ export default function AdminOverviewPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>("30d");
   const [dailyVolume, setDailyVolume] = useState<DailyVolume[]>([]);
   const [dailyVolumeLoading, setDailyVolumeLoading] = useState(true);
+  const [dailyVolumeError, setDailyVolumeError] = useState(false);
 
   const fetchAppointments = useCallback(async () => {
     if (!token) return;
@@ -79,15 +80,17 @@ export default function AdminOverviewPage() {
     if (!token) return;
     const days = timeRange === "7d" ? 7 : timeRange === "90d" ? 90 : 30;
     setDailyVolumeLoading(true);
+    setDailyVolumeError(false);
     try {
       const response = await axios.get(`${BACKEND_BASE_URL}/api/admin/chats/daily-volume?days=${days}`, {
         headers: { Authorization: `Bearer ${token}` },
         timeout: 30000,
       });
-      const values = Array.isArray(response.data) ? response.data : response.data?.data;
+      console.log("Daily volume response:", response.data);
+      const values = Array.isArray(response.data) ? response.data : [];
       setDailyVolume(Array.isArray(values) ? values.map((item: Record<string, unknown>) => ({
         date: String(item.date || item.day || ""),
-        message_count: Number(item.message_count ?? item.messages ?? item.count ?? 0),
+        count: Number(item.count ?? 0),
       })) : []);
     } catch (requestError: unknown) {
       if (axios.isAxiosError(requestError) && requestError.response?.status === 401) {
@@ -95,7 +98,7 @@ export default function AdminOverviewPage() {
         router.push("/login");
         return;
       }
-      setError("Unable to load daily volume.");
+      setDailyVolumeError(true);
     } finally {
       setDailyVolumeLoading(false);
     }
@@ -169,11 +172,12 @@ export default function AdminOverviewPage() {
           </div>
         </CardHeader>
         <CardContent className="p-6">
-          {dailyVolumeLoading ? <Skeleton className="h-72 w-full rounded-lg" /> : dailyVolume.length === 0 ? <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">Not yet available</div> : <div className="h-72 w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={dailyVolume} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><defs><linearGradient id="dailyVolumeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.28} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={{ stroke: "#cbd5e1" }} tick={{ fill: "#64748b", fontSize: 12 }} /><YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} /><Tooltip formatter={(value) => [value, "Messages"]} /><Area type="monotone" dataKey="message_count" name="Messages" stroke="#059669" strokeWidth={2.5} fill="url(#dailyVolumeFill)" /></AreaChart></ResponsiveContainer></div>}
+          {dailyVolumeLoading ? <div className="flex h-72 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 size={18} className="animate-spin" />Loading chart...</div> : dailyVolumeError ? <div className="rounded-lg border border-red-200 bg-red-50 p-8 text-center text-sm text-red-700">Failed to load chart</div> : dailyVolume.length === 0 ? <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">Not yet available</div> : <div className="h-72 w-full"><ResponsiveContainer width="100%" height="100%"><AreaChart data={dailyVolume} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><defs><linearGradient id="dailyVolumeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.28} /><stop offset="95%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} /><XAxis dataKey="date" tickLine={false} axisLine={{ stroke: "#cbd5e1" }} tick={{ fill: "#64748b", fontSize: 12 }} /><YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 12 }} /><Tooltip formatter={(value) => [value, "Messages"]} /><Area type="monotone" dataKey="count" name="Messages" stroke="#059669" strokeWidth={2.5} fill="url(#dailyVolumeFill)" /></AreaChart></ResponsiveContainer></div>}
         </CardContent>
       </Card>
 
-      <Card className="border border-slate-200 bg-white shadow-xs">
+      {/* TODO: Implement topic categorization in future release. */}
+      {false && <Card className="border border-slate-200 bg-white shadow-xs">
         <CardHeader>
           <CardTitle className="text-lg font-semibold text-slate-900">Top Dental Topics</CardTitle>
           <CardDescription className="text-sm">Not yet available</CardDescription>
@@ -183,7 +187,7 @@ export default function AdminOverviewPage() {
             Not yet available
           </div>
         </CardContent>
-      </Card>
+      </Card>}
 
       <div className="flex flex-wrap gap-3">
         <Link href="/admin/appointments"><Button variant="outline">Review appointments</Button></Link>

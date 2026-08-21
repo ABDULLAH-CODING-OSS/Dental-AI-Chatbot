@@ -1,5 +1,4 @@
-﻿import os
-import re
+﻿import re
 from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -8,7 +7,7 @@ from pydantic import BaseModel, StrictInt, StrictStr, ValidationError
 from typing import Optional, List
 from app.api.deps import get_current_user
 from app.data.database import get_db 
-from app.models.models import User, ChatSession, ChatMessage
+from app.models.models import User, ChatSession, ChatMessage, SystemSettings
 from app.models.models import Clinic, ClinicPricing, Doctor, Service, Appointment, Notification
 from app.core.scheduling import is_in_the_past, is_within_ranges, parse_time_ranges, time_overlaps, utc_now_naive
 
@@ -17,12 +16,15 @@ def _normalize(text: str) -> str:
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
-# Configurable daily message limit with generous default (100 messages/day)
-DAILY_MESSAGE_LIMIT = int(os.environ.get("DAILY_MESSAGE_LIMIT", "100"))
 BOOKING_INTENT = re.compile(
     r"\b(book|booking|appointment|schedule|reserve|slot|available|availability|clinic|doctor|dentist)\b",
     re.IGNORECASE,
 )
+
+
+def get_daily_limit(db: Session) -> int:
+    setting = db.query(SystemSettings).filter(SystemSettings.key == "daily_message_limit").first()
+    return int(setting.value) if setting else 100
 
 
 class BookingToolArguments(BaseModel):
@@ -193,6 +195,7 @@ class QuotaResponse(BaseModel):
 
 @router.get("/quota", response_model=QuotaResponse)
 def get_user_quota(
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     now_utc = datetime.utcnow()
@@ -203,10 +206,11 @@ def get_user_quota(
     if last_date != today:
         messages_today = 0
 
-    remaining = max(0, DAILY_MESSAGE_LIMIT - messages_today)
+    daily_limit = get_daily_limit(db)
+    remaining = max(0, daily_limit - messages_today)
     return QuotaResponse(
         messages_today=messages_today,
-        limit=DAILY_MESSAGE_LIMIT,
+        limit=daily_limit,
         remaining=remaining
     )
 
@@ -219,10 +223,11 @@ def reset_user_quota(
     current_user.messages_today = 0
     current_user.last_message_date = datetime.utcnow()
     db.commit()
+    daily_limit = get_daily_limit(db)
     return QuotaResponse(
         messages_today=0,
-        limit=DAILY_MESSAGE_LIMIT,
-        remaining=DAILY_MESSAGE_LIMIT
+        limit=daily_limit,
+        remaining=daily_limit
     )
 
 
@@ -292,16 +297,17 @@ def send_message(
 
     now_utc = datetime.utcnow()
     today = now_utc.date()
+    daily_limit = get_daily_limit(db)
     last_date = current_user.last_message_date.date() if current_user.last_message_date else None
 
     if last_date != today:
         current_user.messages_today = 0
         current_user.last_message_date = now_utc
 
-    if current_user.messages_today >= DAILY_MESSAGE_LIMIT:
+    if current_user.messages_today >= daily_limit:
         raise HTTPException(
             status_code=429,
-            detail=f"You've reached your daily limit of {DAILY_MESSAGE_LIMIT} messages. Please try again tomorrow or reset your quota.",
+            detail=f"You've reached your daily limit of {daily_limit} messages. Please try again tomorrow or reset your quota.",
         )
 
     current_user.messages_today += 1
