@@ -57,6 +57,8 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
     if user is None or not verify_password(request.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password.")
+    if user.is_suspended:
+        raise HTTPException(status_code=403, detail="Your account has been suspended. Please contact support.")
 
     # Key security check: the "Login as Admin" checkbox is a UI hint only.
     # We independently verify the account's real role in the database.

@@ -1,5 +1,8 @@
 
 from dotenv import load_dotenv
+
+from app.api import admin_settings
+from app.api import admin_chats, admin_users
 load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +32,9 @@ app.include_router(auth.router)
 app.include_router(notifications.router)
 app.include_router(doctors.router)
 app.include_router(services.router)
+app.include_router(admin_users.router)
+app.include_router(admin_chats.router)
+app.include_router(admin_settings.router)
 
 app.include_router(chat.router)
 app.include_router(appointments.router)

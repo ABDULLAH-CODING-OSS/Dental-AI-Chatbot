@@ -10,9 +10,9 @@ if existing:
 else:
     admin = User(
         email="admin@denovadental.com",
-        hashed_password=hash_password("ChangeThisPassword123!"),
+        hashed_password=hash_password("password"),
         role="admin",
-        full_name="Dr. Aris Thorne",
+        full_name="Abdullah Javed",
     )
     db.add(admin)
     db.commit()

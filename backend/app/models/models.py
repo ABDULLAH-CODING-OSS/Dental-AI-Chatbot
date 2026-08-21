@@ -83,6 +83,7 @@ class User(Base):
 
     messages_today = Column(Integer, default=0)
     last_message_date = Column(DateTime, nullable=True)
+    is_suspended = Column(Integer, default=0)  # 0/1 boolean flag
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"

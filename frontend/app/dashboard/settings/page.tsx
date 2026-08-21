@@ -40,7 +40,7 @@ const itemVariants = {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, token, role, fullName, setAuthData, logout } = useAuth();
+  const { user, fullName, logout } = useAuth();
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -87,10 +87,7 @@ export default function SettingsPage() {
       return;
     }
 
-    if (token && role) {
-      setAuthData(token, role, profileName.trim(), profileEmail.trim());
-    }
-    showNotification("Profile settings updated successfully.");
+    showNotification("Profile editing coming soon.");
   };
 
   const handleUpdatePassword = (e: React.FormEvent) => {
@@ -149,7 +146,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">Personal Information</h2>
-              <p className="text-sm text-slate-500 font-medium">Update your account name and registered contact email</p>
+              <p className="text-sm text-slate-500 font-medium">Profile editing coming soon — changes are not persisted yet.</p>
             </div>
           </div>
 
