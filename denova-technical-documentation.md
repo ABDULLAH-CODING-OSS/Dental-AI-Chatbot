@@ -1,506 +1,287 @@
-Denova — Complete Technical Documentation
-1. Project Overview
+# Denova Technical Documentation
 
-Denova is a production-ready, full-stack dental health platform combining RAG-powered clinical guidance with an intelligent appointment booking system. It delivers evidence-grounded dental consultation through a premium web interface featuring real-time chat, appointment management, admin analytics, and role-based access control.
+## 1. System Overview
 
-The platform is fully functional and ready for client deployment with no demo data or placeholders remaining.
+Denova is a dental consultation and appointment-booking application with:
 
-2. Architecture Overview
-┌─────────────────────────┐      ┌──────────────────────┐      ┌────────────────────┐
-│   Next.js Frontend      │      │   FastAPI Backend    │      │   Groq API         │
-│   (App Router + TS)     │◀────▶│   (REST + Tools)     │◀────▶│   openai/gpt-oss   │
-│   - Chat Interface      │      │   - RAG Pipeline     │      │   -20b Model       │
-│   - Admin Dashboard     │      │   - Booking Engine   │      │                    │
-│   - Auth (JWT)          │      │   - Rate Limiting    │      │                    │
-└─────────────────────────┘      └──────────────────────┘      └────────────────────┘
-                                           │
-                        ┌──────────────────┼──────────────────┐
-                        ▼                  ▼                  ▼
-                 ┌────────────┐    ┌──────────────┐    ┌─────────────────┐
-                 │ ChromaDB   │    │ SQLite/      │    │ HuggingFace     │
-                 │ (Vectors)  │    │ PostgreSQL   │    │ Embeddings      │
-                 │ 400-char   │    │ (Prod-ready)│    │ (all-MiniLM-    │
-                 │ chunks     │    │              │    │  L6-v2)         │
-                 └────────────┘    └──────────────┘    └─────────────────┘
-                                           │
-                        ┌──────────────────┴──────────────────┐
-                        ▼                                     ▼
-                 ┌──────────────────┐            ┌──────────────────────┐
-                 │ JWT Auth         │            │ Admin Analytics      │
-                 │ (bcrypt/argon2)  │            │ - Daily volume       │
-                 │ - Role-based     │            │ - User management    │
-                 │ - Rate limiting  │            │ - Appointment data   │
-                 └──────────────────┘            └──────────────────────┘
-3. Data Pipeline & Knowledge Base
-Source Data
+- A Next.js and React frontend in `frontend/`.
+- A FastAPI backend in `backend/`.
+- SQLite and SQLAlchemy for transactional application data.
+- ChromaDB and a retrieval-augmented generation pipeline for dental knowledge.
+- Agent tool calls for clinic, service, doctor, availability, and booking workflows.
 
-Denova's clinical knowledge base is built from authoritative, reuse-licensed public health data:
+The backend is the source of truth for authentication, appointments, chat history, notifications, administrative data, settings, and rate limits. The frontend renders that data and manages client-side interaction state.
 
-Source	Type	Coverage	License
-MedlinePlus Health Topics (NIH/NLM)	Structured XML, daily-generated	2,000+ health topics filtered to dental-relevant	Public Domain
-CDC Oral Health Fact Sheets	PDFs + web content	U.S. epidemiology, prevention, treatment guidelines	Public Domain
-NIDCR (National Institute of Dental/Craniofacial Research)	Health info pages	Federal dental condition facts, research summaries	Public Domain
-Data Processing Pipeline
-Download & Parse: Daily-generated MedlinePlus XML corpus downloaded and parsed into structured text documents.
-Filtering: Full 2,000+ topic corpus filtered by dental keywords (tooth|gum|oral|cavity|periodontal|orthodont|braces|implant|root canal|abscess|gingivitis|plaque, etc.) to isolate ~300 dental-focused documents.
-Chunking: RecursiveCharacterTextSplitter (LangChain) — 400-character chunks, 40-character overlap — ensures semantic coherence while maintaining retrieval flexibility.
-Embedding & Indexing: sentence-transformers/all-MiniLM-L6-v2 (HuggingFace) — fast, lightweight, cached at server startup; vectors stored in ChromaDB, persisted to disk, auto-rebuilt if missing.
-Retrieval: Top-k=3 similarity search per user query; chunks ranked by cosine similarity.
-4. RAG System Architecture
-Core Components
+## 2. Current Product Behavior
 
-Embeddings Engine:
+### Patient experience
 
-Model: sentence-transformers/all-MiniLM-L6-v2
-Loaded once at server startup, kept in memory
-Dimension: 384
-Latency: <50ms per query on CPU
+- Sign up and log in through `/api/auth/signup` and `/api/auth/login`.
+- Ask dental questions through the chat page.
+- Receive answers grounded in the configured dental knowledge base.
+- View citations/source snippets returned with chat responses.
+- See appointment confirmations as receipt cards when the response includes a structured `receipt` object.
+- Select available appointment times through clickable slot chips. Selecting a chip sends the time through the existing chat flow.
+- See clinic, doctor, and service responses as structured cards instead of raw internal fields.
+- Review and cancel appointments.
+- Review, continue, and delete consultation sessions.
+- View notifications and mark them as read.
+- Change the account password from dashboard settings.
 
-Vector Store:
+### Administrative experience
 
-ChromaDB (development/small deployments)
-Can scale to PostgreSQL pgvector for production
-Automatic persistence to ./chroma_db/
-Index auto-rebuild on first boot if missing
+- Review real patient users and suspend/reactivate or delete eligible patients.
+- Review chat sessions and open read-only transcripts.
+- Review and update appointments.
+- Manage doctors, clinics, services, and clinic-specific pricing.
+- Update daily message limits and clinical safety toggles.
+- View overview metrics for users, chat activity, messages, pending appointments, and daily message volume.
+- The Top Dental Topics chart is intentionally hidden. Topic categorization has not been implemented yet.
 
-LLM Provider:
+## 3. Repository Structure
 
-Groq API — chosen for <1s latency, high throughput
-Model: openai/gpt-oss-20b (switched from llama-3.3-70b-versatile June 2026)
-Max tokens: 1500 per response
-Fallback handling: if tool-calling fails, retries without tools; if still fails, returns safe fallback message
+```text
+Dental-AI-Chatbot/
+├── backend/
+│   ├── main.py                 FastAPI application and router registration
+│   ├── requirements.txt        Python dependencies are maintained at repository root
+│   ├── app/
+│   │   ├── api/                FastAPI routers
+│   │   ├── core/               Security and scheduling helpers
+│   │   ├── data/               Database engine and migrations
+│   │   ├── models/             SQLAlchemy models
+│   │   ├── rag.py              Retrieval and answer generation
+│   │   └── dental_knowledge.txt
+│   ├── data_sources/           Source datasets
+│   ├── rag_docs/               Processed retrieval documents
+│   └── chroma_db/              Local ChromaDB data
+├── frontend/
+│   ├── app/                    Next.js routes and page components
+│   ├── components/             Shared UI, dashboard, admin, and chat components
+│   ├── lib/                    Client helpers and auth utilities
+│   ├── public/                 Static assets
+│   └── package.json            Frontend scripts and dependencies
+├── denova-technical-documentation.md
+├── README.md
+└── requirements.txt
+```
 
-Retrieval Flow:
+## 4. Technology Stack
 
-User Query
-    ↓
-Embedding (all-MiniLM-L6-v2)
-    ↓
-ChromaDB similarity_search(k=3)
-    ↓
-Top-3 chunks + Chat History + Booking Context
-    ↓
-Groq LLM (with tools if booking-related)
-    ↓
-Grounded Answer + Optional Tool Calls
-System Prompt (Final, Production Version)
+### Frontend
 
-The system prompt was refined through production testing to solve three critical issues:
+- Next.js `16.2.6` with the App Router.
+- React `19.2.4`.
+- Tailwind CSS v4 using `@tailwindcss/postcss`.
+- Recharts for administrative analytics charts.
+- Framer Motion for transitions and animated states.
+- Radix/shadcn UI primitives.
+- Axios for authenticated API requests.
+- React Markdown and remark-gfm for chat answer rendering.
 
-Issue 1: Over-refusal — Model refused meta-questions ("what's my name?") as "not dental."
-Fix: Explicitly allow conversation-history questions alongside clinical questions.
+### Backend
 
-Issue 2: RAG vs. Memory Conflict — "use ONLY provided context" broke conversation continuity.
-Fix: Define context as two sources: retrieved chunks AND active session history.
+- Python 3.10 or newer.
+- FastAPI and Uvicorn.
+- SQLAlchemy ORM.
+- SQLite by default.
+- bcrypt/JWT authentication.
+- ChromaDB, Groq, and the retrieval pipeline for dental answers.
 
-Issue 3: Hallucination During Declines — Model invented topics ("I can't discuss RSV") to justify refusals.
-Fix: Decline generically without referencing invented specifics.
+## 5. Backend Router Map
 
-Final Prompt Rules:
+All routers are registered in `backend/main.py`.
 
-Answer clinical questions from RETRIEVED CONTEXT only; admit gaps honestly
-Answer conversational/meta questions from CONVERSATION HISTORY
-Never re-ask details already stated in history or booking_state
-For non-dental: decline politely, redirect to dental topics (no invented topics)
-Red flags (severe swelling, breathing trouble, bleeding, fever + dental pain): escalate to emergency care
-Appointment booking: collect service → clinic → doctor → date → time; validate against real availability before booking
-Output: clean Markdown, no raw HTML, honest "I don't know" for business details
-5. Appointment Booking System
-Function-Calling Architecture
+### Authentication: `/api/auth`
 
-The booking system uses Groq tool-calling with two function definitions:
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/signup` | Create a patient account. |
+| POST | `/login` | Authenticate a patient or administrator. |
+| GET | `/me` | Return the authenticated account summary. |
+| PATCH | `/me` | Verify the current password and replace it with a new hashed password. |
 
-Tool 1: get_available_slots
+Password update body:
 
-json
+```json
 {
-  "name": "get_available_slots",
-  "description": "Check real appointment availability for a doctor on a specific date",
-  "parameters": {
-    "clinic_id": "integer",
-    "doctor_id": "integer",
-    "appointment_date": "YYYY-MM-DD"
-  }
+	"current_password": "current password",
+	"new_password": "new password"
 }
+```
 
-Returns: List of 30-minute slot intervals (e.g., ["09:00", "09:30", "10:00", ...])
+### Patient chat: `/api/chat`
 
-Tool 2: book_appointment
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/quota` | Return the authenticated user's current message usage and dynamic limit. |
+| POST | `/reset-quota` | Reset the authenticated user's daily message counter. |
+| GET | `/sessions` | List the user's consultation sessions. |
+| GET | `/sessions/{session_id}/messages` | Load messages for one owned session. |
+| PATCH | `/sessions/{session_id}` | Rename one owned session. |
+| DELETE | `/sessions/{session_id}` | Delete one owned session. |
+| POST | `/` | Send a chat message and run answer/booking logic. |
 
-json
-{
-  "name": "book_appointment",
-  "description": "Create an appointment booking after user confirms all details",
-  "parameters": {
-    "clinic_id": "integer",
-    "service_id": "integer",
-    "doctor_id": "integer",
-    "appointment_date": "YYYY-MM-DDTHH:MM:SS (ISO, no timezone)",
-    "patient_name": "string (optional, uses current user if omitted)",
-    "patient_relation": "Self|Child|Spouse|Parent|etc. (default: Self)",
-    "patient_age": "integer (required for medical record)",
-    "notes": "string (optional)"
-  }
-}
+The chat endpoint can return `answer`, `context`, `session_id`, and an optional structured `receipt` object.
 
-Creates: Appointment record with status pending, sends notification to user
+### Appointments: `/api/appointments`
 
-Booking Flow (UX)
-User: "Book me an appointment"
-  ↓
-System extracts: name (from auth), age (from history), relation (from history)
-  ↓
-"Which service? clinic? doctor? date? time?"
-  ↓
-User provides all details
-  ↓
-System calls get_available_slots(clinic_id, doctor_id, date)
-  ↓
-Display available times in clickable chip grid
-  ↓
-User clicks time slot
-  ↓
-System calls book_appointment(all details + selected time)
-  ↓
-System generates receipt with confirmation_number (APT-XXXXXX)
-  ↓
-Notification created, appointment status = pending
-Anti-Loop & Memory Rules
-Never re-ask: If user said age=25, clinic=KM, doctor=Faria → system remembers across turns
-20-turn booking context: _needs_booking_tools() scans last 20 messages for booking keywords; keeps booking mode active during entire flow
-Availability validation: Always call get_available_slots before claiming a slot is free; never infer from clinic hours alone
-Doctor name normalization: _normalize() removes periods/spaces from names to match "Dr. Faria" in both DB and LLM output
-Data Model (Appointments)
-sql
-CREATE TABLE appointments (
-  id INTEGER PRIMARY KEY,
-  user_id INTEGER,          -- patient
-  doctor_id INTEGER,        -- who
-  clinic_id INTEGER,        -- where
-  service_id INTEGER,       -- what procedure
-  dentist_name VARCHAR,     -- backup name field
-  patient_name VARCHAR,     -- name on record
-  patient_relation VARCHAR, -- Self/Child/Spouse
-  patient_age INTEGER,      -- for medical record
-  appointment_date DATETIME,-- local clinic time, no TZ
-  status VARCHAR,           -- pending/confirmed/cancelled
-  price FLOAT,              -- service price at time of booking
-  notes TEXT,               -- user notes
-  created_at DATETIME,      -- booking timestamp
-  FOREIGN KEY (user_id) REFERENCES users(id),
-  FOREIGN KEY (doctor_id) REFERENCES doctors(id),
-  ...
-);
-6. Backend (FastAPI)
-Tech Stack
-Framework: FastAPI 0.104+
-ORM: SQLAlchemy 2.0
-Database: SQLite (dev), PostgreSQL ready (prod)
-Auth: JWT (python-jose), bcrypt/argon2 password hashing
-API Rate Limiting: 100 messages/day per user (configurable via admin settings)
-Rate Limit Tracking: Per-user messages_today counter + last_message_date, reset daily at UTC
-Authentication & Authorization
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/validate-slot` | Validate a requested appointment slot. |
+| POST | `/` | Create an appointment. |
+| GET | `/me` | List the authenticated user's appointments. |
+| DELETE | `/{appointment_id}` | Cancel an owned appointment. |
+| GET | `/admin/all` | List appointments for administrators. |
+| PATCH | `/admin/{appointment_id}/status` | Change an appointment status as an administrator. |
 
-JWT Flow:
+### Administrative users: `/api/admin/users`
 
-User POSTs email/password to /api/auth/login
-Server verifies password hash, generates JWT (secret: env var SECRET_KEY)
-Frontend stores JWT in React Context (memory only, not localStorage)
-All API calls include Authorization: Bearer <JWT> header
-Server decodes & validates JWT; extracts user_id and role
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | List patient users with status, creation date, and chat count. |
+| PATCH | `/{user_id}/suspend` | Toggle a patient's suspended state. |
+| DELETE | `/{user_id}` | Delete a patient unless pending or confirmed appointments exist. |
 
-Role-Based Access:
+### Administrative chat analytics: `/api/admin/chats`
 
-Patient (role="patient"): Can access /api/chat/, /api/appointments/me, /api/notifications/me, patient settings
-Admin (role="admin"): Can access all /api/admin/ endpoints (users, chat logs, appointments, analytics, settings, clinics, doctors, services, pricing)
-Admin login uses same form; backend verifies role == "admin" from database (never trusted from frontend checkbox alone)
-Key Endpoints
-Method	Endpoint	Auth	Description
-POST	/api/auth/signup	None	Create patient account
-POST	/api/auth/login	None	Authenticate, return JWT
-POST	/api/chat/	JWT	Send message, get RAG-grounded answer
-GET	/api/chat/sessions	JWT	List user's chat sessions
-GET	/api/chat/sessions/{id}/messages	JWT	Load session history
-POST	/api/appointments/	JWT	Create booking (from chat flow)
-GET	/api/appointments/me	JWT	User's appointments
-GET	/api/admin/overview	Admin JWT	Analytics overview
-GET	/api/admin/chats/daily-volume?days=30	Admin JWT	Daily chat count trend
-GET	/api/admin/users	Admin JWT	All users + quota info
-PATCH	/api/admin/settings/{key}	Admin JWT	Update rate limit, etc.
-GET	/api/admin/clinics	Admin JWT	List clinics
-POST	/api/admin/clinics	Admin JWT	Create clinic
-(etc.)	(other CRUD)	Admin JWT	Manage doctors, services, pricing
-Rate Limiting Logic
-python
-# In send_message()
-daily_limit = get_daily_limit(db)  # Reads from SystemSettings table
-if current_user.messages_today >= daily_limit:
-    raise HTTPException(status_code=429, detail="Daily limit reached...")
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/sessions` | List all chat sessions with patient and message-count summaries. |
+| GET | `/sessions/{session_id}/transcript` | Return a read-only transcript. |
+| GET | `/stats` | Return total sessions, total messages, and active chats today. |
+| GET | `/daily-volume?days=N` | Return daily message counts as `{ "date": "YYYY-MM-DD", "count": N }`. |
 
-current_user.messages_today += 1
-current_user.last_message_date = utcnow()
-db.commit()
+The daily-volume endpoint returns a complete date range, including zero-count dates:
 
-Resetting: When last_message_date.date() != today:
+```json
+[
+	{ "date": "2026-08-15", "count": 5 },
+	{ "date": "2026-08-16", "count": 3 },
+	{ "date": "2026-08-17", "count": 8 }
+]
+```
 
-python
-if last_date != today:
-    current_user.messages_today = 0
-    current_user.last_message_date = now_utc
-7. Frontend (Next.js)
-Tech Stack
-Framework: Next.js 15+ (App Router)
-Language: TypeScript
-Styling: Tailwind CSS 3+
-Components: shadcn/ui (button, textarea, accordion, badge, etc.)
-Animations: Framer Motion
-Markdown: react-markdown + remark-gfm
-HTTP Client: axios
-Auth State: React Context (no localStorage)
-Pages & Routes
+### Administrative settings: `/api/admin/settings`
 
-Public:
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | Return daily limit and clinical safety settings. |
+| PATCH | `/` | Persist only the supplied changed settings. |
 
-/ — Landing page (marketing, FAQ, features)
-/login — Auth form (patient + admin toggle)
-/signup — Patient registration
+Settings are stored in the `system_settings` table through the `SystemSettings` model. The `daily_message_limit` value is read from the database on every quota and chat request; it is not cached as a module-level startup constant.
 
-Patient (Protected):
+### Other administrative data routers
 
-/dashboard — Main chat interface + message history
-/dashboard?session={id} — Load specific chat session
-/appointments — View user's appointment list + details
-/settings — Profile & password change
-/notifications — Notification inbox
+- Doctors: `/api/doctors/`
+- Services: `/api/services/`
+- Clinics: `/api/clinics/`
+- Clinic pricing: `/api/clinic-pricing/`
+- Notifications: `/api/notifications`
 
-Admin (Protected, role-gated):
+## 6. Frontend Rendering Details
 
-/admin/overview — Analytics dashboard (daily volume chart, KPIs)
-/admin/users — User management + quota status
-/admin/chat-logs — View all chat sessions + search
-/admin/appointments — Manage all appointments + status updates
-/admin/clinics — CRUD clinics
-/admin/doctors — CRUD doctors (assign to clinics, set fees/slots)
-/admin/services — CRUD services + descriptions
-/admin/pricing — Clinic-specific pricing overrides
-/admin/settings — Rate limit, feature flags, system settings
-Chat Interface Components
-DashboardChatContent — Main chat container, message state, scroll-to-bottom
-EnhancedMessageBubble — Renders user/AI messages + structured elements (receipts, slot pickers, clinic listings)
-ReceiptCard — Styled appointment confirmation display
-SlotPicker — Clickable time slot buttons (renders automatically when slots are detected in AI response)
-ListingsCard — Clinic/Doctor/Service table rendering
-MarkdownContent — Markdown rendering with Tailwind styling for tables, lists, etc.
-State Management
-Auth Context (useAuth()) — JWT token, user role, login/logout methods
-Local state — Messages, isTyping, currentSessionId, etc. (React useState)
-No Redux/Zustand — Kept minimal; session state re-hydrated from backend on page load
-Font Sizing (Tailwind Config)
+### Chat structured content
 
-Increased globally by 15-20% for readability (not bold, just larger):
+The chat UI uses `frontend/components/chat/messageParser.ts` and `EnhancedMessageBubble.tsx` to detect existing backend response formats:
 
-javascript
-fontSize: {
-  xs: '13px',    // labels, captions
-  sm: '14px',    // small text
-  base: '16px',  // body text
-  lg: '18px',    // medium headings
-  xl: '20px',    // section headings
-  '2xl': '24px', // page titles
-  '3xl': '30px', // hero text
-}
-8. Database Schema
-Core Tables
+- `ReceiptCard.tsx` renders confirmation number, doctor, specialty, date, time, price, and status.
+- `SlotPicker.tsx` renders available times as clickable buttons. It calls the existing chat send flow; it does not add a booking endpoint.
+- `ListingsCard.tsx` renders clinics, doctors, and services while hiding numeric internal IDs from visible labels.
+- Raw Markdown is omitted when a slot list is successfully converted to a picker, preventing duplicate slot display.
 
-users
+### Administrative dashboard
 
-sql
-id, email (unique), hashed_password, full_name, role (patient|admin),
-created_at, messages_today, last_message_date
+- `frontend/app/admin/page.tsx` fetches appointments, admin users, chat stats, and daily volume.
+- The daily-volume chart uses Recharts and the `count` field from `/api/admin/chats/daily-volume`.
+- The Top Dental Topics card is preserved in code but hidden with a TODO conditional until topic categorization is available.
+- `frontend/app/admin/settings/page.tsx` submits only changed settings fields.
 
-chat_sessions
+### Typography
 
-sql
-id, user_id (FK), title, created_at, updated_at
+Global Tailwind v4 typography tokens are defined in `frontend/app/globals.css`. The current scale prioritizes readable body text and regular weights. Component-specific classes may still intentionally set emphasis for labels, controls, or headings.
 
-chat_messages
+## 7. Data Model Summary
 
-sql
-id, session_id (FK), sender (user|assistant), content (text),
-timestamp
+Core SQLAlchemy models in `backend/app/models/models.py`:
 
-appointments
+- `User`: account, role, suspension state, daily usage counter.
+- `ChatSession`: consultation title, owner, timestamps.
+- `ChatMessage`: sender, content, timestamp, session relationship.
+- `Appointment`: patient, doctor, clinic, service, time, price, status.
+- `Doctor`: specialty, consultation fee, availability slots.
+- `Clinic`: address, phone, coordinates, operating hours.
+- `Service`: description and base price.
+- `ClinicPricing`: clinic-specific service price override.
+- `Notification`: patient notification and read state.
+- `SystemSettings`: key/value configuration records.
 
-sql
-id, user_id (FK), doctor_id (FK), clinic_id (FK), service_id (FK),
-dentist_name, patient_name, patient_relation, patient_age,
-appointment_date (DATETIME, local, no TZ), status (pending|confirmed|cancelled),
-price, notes, created_at
+## 8. Local Setup
 
-clinics
+### Prerequisites
 
-sql
-id, name, address, phone, latitude, longitude,
-operating_hours (e.g., "09:00-18:00,14:00-17:00"),
-created_at
+- Node.js 18 or newer.
+- Python 3.10 or newer.
+- A configured Groq API key for answer generation.
 
-doctors
+### Backend
 
-sql
-id, name, specialty, email (unique), phone,
-consultation_fee, slots (e.g., "09:00-12:00,14:00-18:00"),
-created_at
+From the repository root:
 
-services
-
-sql
-id, name, description, base_price, created_at
-
-clinic_pricing
-
-sql
-id, clinic_id (FK), service_id (FK), price (override),
-created_at
-
-notifications
-
-sql
-id, user_id (FK), title, message, read (0|1),
-created_at
-
-system_settings
-
-sql
-id, key (unique), value (e.g., key='daily_message_limit', value='100'),
-created_at, updated_at
-9. Security
-Authentication & Secrets
-JWT Secret: Loaded from env var SECRET_KEY (minimum 32 chars)
-Password Hashing: Argon2 (recommended) or bcrypt via passlib
-Token Expiry: 24 hours (configurable in code)
-Session Storage: React Context (memory only), no localStorage/sessionStorage → reduced XSS token-theft surface
-Admin Access Control
-Admin role is never inferred from frontend UI alone
-Backend validates role == "admin" from database on every admin endpoint
-Admin login uses same form; role check happens server-side via database lookup
-No admin bypass via URL manipulation or JWT forgery (JWT signature verified, role field not client-controlled)
-Rate Limiting
-Per-user 100 messages/day (configurable)
-Tracked via database columns, not in-memory (survives restarts)
-Daily reset at UTC midnight
-Returns 429 with descriptive error message when limit hit
-Data Privacy
-User passwords never stored plaintext (hashed on signup, verified on login)
-JWT tokens held in memory only (not persisted to disk/local storage)
-All API responses validated server-side; no sensitive data leaks in error messages
-Chat history and appointment data isolated per user (no cross-user leaks)
-10. Deployment & Environment
-Environment Variables (Required)
-# Backend
-SECRET_KEY=<32+ char random string>
-GROQ_API_KEY=<your Groq API key>
-DATABASE_URL=sqlite:///./denova.db  (or postgresql://...)
-CORS_ORIGINS=http://localhost:3000,https://denova.vercel.app
-
-# Frontend (.env.local)
-NEXT_PUBLIC_CHAT_API_URL=http://localhost:8000/api/chat/
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-Local Development Setup
-bash
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate (Windows)
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python seed_data.py        # Populate demo data
-uvicorn app.main:app --reload
+```
 
-# Frontend
-cd frontend
-npm install
-npm run dev               # Runs on http://localhost:3000
-Seeding Demo Data
+Start the API from `backend/`:
 
-Run once after database tables exist:
-
-bash
+```powershell
 cd backend
-python seed_data.py
+uvicorn main:app --reload --port 8000
+```
 
-Creates:
+The API is available at `http://127.0.0.1:8000`. Swagger documentation is at `/docs`.
 
-4 demo clinics (KM Dental House, RGB Clinic, Ashfaq, Cantt Care)
-11 services (consultation, cleaning, filling, extraction, implants, etc.)
-5 doctors (Dr. Sarah Lee, Dr. Hamid Raza, Dr. Faria Khan, Dr. Danish, Dr. Zain)
-6 test patient accounts (all password: Patient123!)
-1 admin account (admin@denovadental.com / Admin123!)
-Random appointments + chat histories + notifications (realistic test data)
+### Frontend
 
-Safe to re-run; skips duplicates by email.
+From `frontend/`:
 
-11. Production Checklist
- JWT token validation on all protected endpoints
- Password hashing (bcrypt/argon2)
- CORS configured (no wildcard * for origins)
- Rate limiting implemented (100 messages/day, dynamic via admin settings)
- Admin role verification on every admin endpoint
- RAG grounding (all clinical answers backed by retrieved context or honest "I don't know")
- Red-flag escalation (severe symptoms → emergency care recommendation)
- No hardcoded secrets in code (all via env vars)
- Session state not persisted to localStorage (memory-only JWT)
- Error messages don't leak sensitive data
- Chat history + appointments properly isolated per user
- Appointment booking fully functional (tool-calling, validation, receipts)
- Admin analytics dashboard working (daily volume chart, user management)
- All CRUD operations for clinics, doctors, services, pricing functional
- Font sizing increased for readability (16px base, not bold)
- No demo UI elements remaining ("Top Dental Topics" chart hidden)
- Password change endpoint implemented (PATCH /api/auth/me)
- All system prompt refinements applied (no over-refusal, no hallucinated topics)
-12. Known Limitations / Future Enhancements
-Completed Features (Not Limitations)
-✅ Full RAG-powered chat with function-calling booking
-✅ Real appointment management (create, view, update status)
-✅ Admin analytics (daily chat volume, user quota tracking)
-✅ Clinic/doctor/service/pricing CRUD
-✅ Role-based access control
-✅ Rate limiting with admin override
-✅ Chat history + session persistence
-✅ Notifications
-Potential Future Enhancements (Out of Scope)
-Topic categorization dashboard ("Top Dental Topics" pie chart) — requires message labeling pipeline
-Email notifications to users on appointment confirmation
-SMS reminders for upcoming appointments
-Dentist/clinic integration (direct booking to external calendar systems)
-Multi-language support (currently English only)
-Mobile-native apps (currently web-only)
-Video consultation capability (currently chat-only)
-13. Repository & Support
+```powershell
+npm install
+npm run dev
+```
 
-GitHub: https://github.com/ABDULLAH-CODING-OSS/Dental-AI-Chatbot.git
+The frontend is available at `http://localhost:3000`.
 
-Key Files:
+Useful production checks:
 
-Backend: app/rag.py (RAG pipeline), app/api/routes/chat.py (booking flow), app/models/models.py (schema)
-Frontend: app/dashboard/page.tsx (chat UI), app/admin/overview/page.tsx (analytics), components/chat/ (message rendering)
+```powershell
+npm run lint
+npm run build
+```
 
-Deployment:
+### Environment variables
 
-Backend: FastAPI can run on Heroku, Railway, AWS Lambda (with ASGI wrapper), DigitalOcean App Platform, or any server with Python 3.9+
-Frontend: Vercel (recommended for Next.js), Netlify, AWS Amplify, or any static host
-14. Testing & Validation
-Manual Testing Checklist
-Chat Flow: Ask dental question → verify RAG context retrieved → verify answer grounded in context
-Booking Flow: "Book appointment" → select clinic/doctor/service/date/time → verify appointment created with receipt
-Admin Analytics: Check daily volume chart shows real data; verify settings PATCH updates rate limit dynamically
-Auth: Login as patient → admin toggle checked → verify backend rejects (role-based gating); login as admin → verify access to all admin routes
-Rate Limiting: Send 100 messages as patient → 101st should return 429; as admin, change limit to 50 via settings → new limit takes effect immediately
-Font Readability: Visual inspection across all pages (chat, admin, login) → text should be readable at arm's length on 1080p monitor
-Load Testing (Optional)
-Groq LLM: ~1s/request latency; concurrent requests handled by Groq (no client-side queuing)
-ChromaDB: Sub-50ms for k=3 similarity search on ~300 documents
-SQLite: Fine for <1000 concurrent users; switch to PostgreSQL for larger deployments
+Backend:
 
-Documentation Last Updated: August 2026
-Project Status: ✅ PRODUCTION-READY
-Client Deliverable: Ready for deployment and end-user testing
+```text
+GROQ_API_KEY=your_groq_api_key
+JWT_SECRET_KEY=replace-with-a-secret-in-deployment
+```
+
+Frontend:
+
+```text
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_CHAT_API_URL=http://127.0.0.1:8000/api/chat/
+```
+
+## 9. Operational Notes
+
+- Do not commit API keys or production secrets.
+- `backend/chroma_db/` and generated retrieval documents can be regenerated from the source data and should not be treated as application source code.
+- The default SQLite database is local to the backend working directory unless the database configuration is changed.
+- Administrative routes require an administrator bearer token.
+- Password changes require the current password and never return or expose password hashes.
+- Booking and cancellation operations remain backend-authoritative; frontend state updates occur only after successful responses.

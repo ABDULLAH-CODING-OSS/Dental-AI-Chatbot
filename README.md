@@ -1,134 +1,150 @@
-# 🦷 Denova - Dental AI Chatbot & Booking Agent
+# Denova Dental AI
 
-Denova is a premium HealthTech SaaS platform designed to provide medically sound, instant dental guidance and seamless appointment scheduling. By leveraging an advanced Retrieval-Augmented Generation (RAG) architecture and Agentic API tool-calling, Denova grounds its AI responses in verified medical data while autonomously managing clinic schedules, patient histories, and service pricing
+Denova is a dental consultation and appointment-booking application. It combines a Next.js patient/admin interface with a FastAPI service, SQLAlchemy data model, and retrieval-augmented dental knowledge pipeline.
 
----
+## Features
 
-## 🚀 Key Features
+- Authenticated patient and administrator accounts.
+- AI dental consultation with retrieved clinical context and source snippets.
+- Appointment discovery and booking through chat tool calls.
+- Availability validation across doctor slots, clinic hours, and existing appointments.
+- Structured appointment receipts, clickable availability slots, and clinic/doctor/service cards.
+- Patient appointment, consultation-history, notification, and password-management pages.
+- Admin management for patients, chat transcripts, appointments, doctors, clinics, services, and pricing.
+- Admin settings for daily message limits, clinical disclaimers, and emergency triage.
+- Admin overview metrics and a real daily message-volume chart.
+- The Top Dental Topics chart is intentionally hidden until topic categorization is implemented.
 
-### 🖥️ Premium User Experience
-* **Modern Interface:** Built with Next.js 14 and React for a lightning-fast, highly responsive App Router experience.
-* **Fluid Animations:** Utilizes Framer Motion for tactile, glassmorphic UI elements and smooth state transitions.
-* **Responsive Design:** Styled with Tailwind CSS v4, ensuring flawless rendering across desktop, tablet, and mobile devices.
-* **Interactive Chat:** Features streaming AI responses, intelligent "thinking" states, auto-scrolling, and inline source citations.
+## Technology
 
-### 🧠 Advanced AI & RAG Pipeline
-* **Knowledge Retrieval:** Employs ChromaDB as a local vector store to retrieve highly relevant context from MedlinePlus documentation.
-* **Precision AI Generation:** Utilizes LangChain to orchestrate the LLM, seamlessly blending retrieved medical context with natural language generation.
-* **Automated Data Ingestion:** Includes a custom Python ETL pipeline to parse, chunk, and vectorize raw MedlinePlus XML datasets.
+### Frontend
 
-### 📅 Agentic Booking System
-* **Intelligent Tool Calling:** The AI agent extracts parameters (date, time, service, clinic) to autonomously trigger backend API tools.
-* **Smart Validation:** Automatically checks requested times against specific doctor availability (`slots`), clinic operating hours, and double-booking conflicts.
-* **Dynamic Alternatives:** Suggests the next 3 available time slots if a requested appointment time is unavailable.
-* **Comprehensive Schema:** Built on a relational database supporting multi-clinic architectures, dynamic service pricing overrides, and strict deletion safeguards.
+- Next.js `16.2.6` App Router
+- React `19.2.4`
+- Tailwind CSS v4
+- Recharts
+- Framer Motion
+- Axios
+- Radix/shadcn UI primitives
+- React Markdown with GitHub Flavored Markdown support
 
----
+### Backend
 
-## 🛠️ Technology Stack
+- Python 3.10+
+- FastAPI and Uvicorn
+- SQLAlchemy
+- SQLite by default
+- JWT authentication with bcrypt password hashing
+- ChromaDB and retrieval-augmented generation
+- Groq-backed answer generation
 
-**Frontend:**
-* Next.js 14 (App Router)
-* React
-* Tailwind CSS v4
-* Framer Motion
-* Shadcn/UI Components
-
-**Backend:**
-* Python 3.10+
-* FastAPI (High-performance API routing)
-* Uvicorn (ASGI web server)
-
-**AI & Data:**
-* LangChain & OpenAI Embeddings
-* ChromaDB (Vector Database)
-* BeautifulSoup4 & lxml (Data processing)
-* SQLAlchemy (ORM for relational database management)
-
----
-
-## 📂 Project Structure
+## Project Layout
 
 ```text
 Dental-AI-Chatbot/
-├── frontend/                 # Next.js Web Application
-│   ├── app/                  # Route handlers and pages
-│   ├── components/           # Reusable UI components
-│   └── package.json          # Frontend dependencies
-├── backend/                  # FastAPI & RAG Application
+├── backend/
+│   ├── main.py
+│   ├── app/api/
+│   ├── app/core/
+│   ├── app/data/
+│   ├── app/models/
+│   ├── app/rag.py
+│   ├── rag_docs/
+│   └── chroma_db/
+├── frontend/
 │   ├── app/
-│   │   ├── api/              # API routes (appointments, clinics, services)
-│   │   └── models/           # SQLAlchemy DB models & schema
-│   ├── main.py               # API entry point
-│   ├── chat.py               # Chat streaming logic & Agent tools
-│   ├── rag.py                # ChromaDB retrieval logic
-│   ├── process_medlineplus.py# XML parsing and chunking script
-│   └── mplus_topics.xml      # Raw medical data source
+│   ├── components/
+│   ├── lib/
+│   └── package.json
+├── requirements.txt
+├── README.md
+└── denova-technical-documentation.md
 ```
 
+## Setup
 
-## ⚙️ Getting Started
-**Prerequisites** 
-* Node.js (v18 or higher)
+### 1. Backend
 
-* Python (v3.10 or higher)
+From the repository root:
 
-Git
-
-### **1. Clone the Repository**
-* git clone [https://github.com/your-username/Dental-AI-Chatbot.git](https://github.com/your-username/Dental-AI-Chatbot.git)
-* cd Dental-AI-Chatbot
-** 2. Backend Setup (FastAPI + ChromaDB) **
-* Set up your Python virtual environment and initialize the vector database.
-
-**Bash**
-# Navigate to the backend directory (or stay in root if your venv is at root)
-python -m venv venv
-
-# Activate the virtual environment
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-
-# Install dependencies from the root directory
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+```
 
-# Navigate to backend and process the MedlinePlus data to build the ChromaDB vector store
+Start the API from the backend directory:
+
+```powershell
 cd backend
-python process_medlineplus.py
-
-# Start the FastAPI server
 uvicorn main:app --reload --port 8000
+```
 
-The API server will run at http://localhost:8000. You can view the Swagger UI documentation at http://localhost:8000/docs.
+The API runs at `http://127.0.0.1:8000`.
 
-3. Frontend Setup (Next.js)
-*  Open a new terminal window and set up the web application.
+Swagger documentation is available at `http://127.0.0.1:8000/docs`.
 
-*  Bash
-# Navigate to the frontend directory
-*  cd frontend
+### 2. Frontend
 
-# Install Node modules
-*  npm install
+Open another terminal:
 
-# Start the development server
-* npm run dev
-* The web application will run at http://localhost:3000.
+```powershell
+cd frontend
+npm install
+npm run dev
+```
 
-🔐 Environment Variables
-You will need to configure environment variables for both the frontend and backend.
+The web application runs at `http://localhost:3000`.
 
-Backend (backend/.env):
+For a production validation:
 
-Code snippet
-OPENAI_API_KEY=your_openai_api_key_here
-DATABASE_URL=sqlite:///./denova.db  # Or your PostgreSQL connection string
+```powershell
+npm run lint
+npm run build
+npm start
+```
 
-Code snippet
-NEXT_PUBLIC_API_URL=http://localhost:8000
-🛡️ Version Control Notes
-To prevent repository bloat, the generated RAG artifacts (rag_docs/*.txt) and the local vector database directory (chroma_db/) are explicitly excluded from version control via .gitignore. You must run the process_medlineplus.py script locally after cloning to regenerate the required database.
+## Environment Variables
 
-Built with ❤️ for better dental health.
+Create the backend environment configuration with the required model and token settings:
+
+```text
+GROQ_API_KEY=your_groq_api_key
+JWT_SECRET_KEY=replace-with-a-secret-in-deployment
+```
+
+The frontend can use these optional API URL settings:
+
+```text
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_CHAT_API_URL=http://127.0.0.1:8000/api/chat/
+```
+
+## Important API Areas
+
+- `/api/auth`: signup, login, account information, and password changes.
+- `/api/chat`: consultation messages, quota, session history, rename, and deletion.
+- `/api/appointments`: slot validation, booking, patient appointments, cancellation, and admin status updates.
+- `/api/admin/users`: patient listing, suspension/reactivation, and deletion.
+- `/api/admin/chats`: session summaries, transcripts, aggregate statistics, and daily volume.
+- `/api/admin/settings`: daily message limit and clinical safety settings.
+- `/api/doctors`: doctor directory management.
+- `/api/services`: service and clinic-pricing data.
+- `/api/clinics`: clinic directory management.
+- `/api/notifications`: patient notification listing and read state.
+
+For request/response details and architecture notes, see [denova-technical-documentation.md](denova-technical-documentation.md).
+
+## Security Notes
+
+- Keep Groq and JWT secrets out of source control.
+- Administrative endpoints require an administrator bearer token.
+- Password changes verify the current password and store only a bcrypt hash.
+- Appointment ownership and status validation are enforced by the backend.
+- The frontend does not treat local state changes as persistence until the backend request succeeds.
+
+## Documentation
+
+The full technical reference covers the router map, data model, frontend rendering behavior, configuration storage, setup, and operational notes:
+
+- [Denova Technical Documentation](denova-technical-documentation.md)
