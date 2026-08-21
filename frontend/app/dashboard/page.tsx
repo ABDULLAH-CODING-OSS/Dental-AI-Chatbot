@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/context/AuthContext";
+import { EnhancedMessageBubble } from "@/components/chat/EnhancedMessageBubble";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -33,6 +34,7 @@ type Message = {
   sources?: string[];
   isError?: boolean;
   isRateLimit?: boolean;
+  receipt?: Record<string, any>;
   timestamp?: string;
 };
 
@@ -186,12 +188,12 @@ const ChatComposer = forwardRef<ChatComposerHandle, {
           }
         }}
         placeholder="Ask Denova anything about dental symptoms, treatments, or care..."
-        className="min-h-19 max-h-55 border-0 focus-visible:ring-0 resize-none py-5 px-6 text-base font-medium text-slate-900 bg-transparent placeholder:text-slate-400"
+        className="min-h-16 max-h-55 border-0 focus-visible:ring-0 resize-none py-4 px-5 text-sm font-medium text-slate-900 bg-transparent placeholder:text-slate-400"
         disabled={disabled}
       />
       <div className="p-3 shrink-0">
-        <Button onClick={submit} disabled={!draft.trim() || disabled} size="icon" className="h-12 w-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-colors cursor-pointer">
-          <Send size={20} />
+        <Button onClick={submit} disabled={!draft.trim() || disabled} size="icon" className="h-10 w-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 transition-colors cursor-pointer">
+          <Send size={18} />
         </Button>
       </div>
     </div>
@@ -353,6 +355,11 @@ function DashboardChatContent() {
     composerRef.current?.edit(content);
   }, []);
 
+  const handleSlotSelect = useCallback((slot: string) => {
+    // Send the selected slot as a message
+    handleSend(slot);
+  }, []);
+
   const handleLoadMore = () => {
     setDisplayedCount(prev => prev + 20);
   };
@@ -393,7 +400,7 @@ function DashboardChatContent() {
         timeout: 30000
       });
 
-      const { answer, context, session_id } = response.data || {};
+      const { answer, context, session_id, receipt } = response.data || {};
 
       // If a new session was created by backend, update the session ID and URL
       if (session_id && (!currentSessionId || currentSessionId !== session_id.toString())) {
@@ -422,7 +429,8 @@ function DashboardChatContent() {
         id: aiMsgId,
         role: "ai",
         content: answer || "I received your query but no answer was provided.",
-        sources: sourceChunks.length > 0 ? sourceChunks : undefined
+        sources: sourceChunks.length > 0 ? sourceChunks : undefined,
+        receipt: receipt || undefined
       };
 
       appendChunk(aiMsg.content);
@@ -523,7 +531,7 @@ function DashboardChatContent() {
                       msg.role === "user" ? "ml-auto flex-row-reverse" : ""
                     }`}
                   >
-                    <StaticMessageBubble msg={msg} />
+                    <EnhancedMessageBubble msg={msg} onSlotSelect={handleSlotSelect} />
 
                       {/* Action Bar: Copy Response for Assistant, Edit Query for User */}
                       <div className="flex items-center gap-2 px-1">

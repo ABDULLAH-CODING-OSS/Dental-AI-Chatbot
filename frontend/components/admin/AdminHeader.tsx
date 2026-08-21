@@ -123,7 +123,7 @@ export function AdminHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-4 sm:px-6 lg:px-8 backdrop-blur-md font-sans">
+    <header className="sticky top-0 z-30 flex h-15 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-4 sm:px-6 lg:px-8 backdrop-blur-md font-sans">
       {/* Left: Mobile Toggle & Page Info */}
       <div className="flex items-center gap-3.5">
         <div className="lg:hidden">
@@ -140,7 +140,7 @@ export function AdminHeader() {
         </div>
 
         <div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">
               {currentInfo.title}
             </h1>
@@ -155,7 +155,7 @@ export function AdminHeader() {
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {/* Live System Indicator */}
         <div className="hidden xl:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700">
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>

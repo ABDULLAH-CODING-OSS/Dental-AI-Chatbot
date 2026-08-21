@@ -79,18 +79,19 @@ def generate_answer(
 
     try:
         response = groq_client.chat.completions.create(**kwargs)
-    except groq.BadRequestError:
-        kwargs.pop("tools", None)
-        kwargs.pop("tool_choice", None)
+    except groq.BadRequestError as e:
+        print("GROQ 400 (first attempt):", e.response.text if hasattr(e, "response") else e)
+        if "tools" in kwargs:
+            kwargs["tool_choice"] = "auto"  # relax instead of removing tools entirely
         try:
             response = groq_client.chat.completions.create(**kwargs)
-        except groq.BadRequestError:
+        except groq.BadRequestError as e:
+            print("GROQ 400 (second attempt):", e.response.text if hasattr(e, "response") else e)
             return SimpleNamespace(
                 content="I ran into an issue checking availability — could you tell me the clinic, doctor, and date again?",
                 tool_calls=None,
             )
-    return response.choices[0].message  # return full message object, not just .content
-
+    return response.choices[0].message
 
 def _initialize_or_load_db():
     if os.path.exists(DB_DIR) and len(os.listdir(DB_DIR)) > 0:
